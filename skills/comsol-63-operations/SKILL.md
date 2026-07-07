@@ -1,6 +1,6 @@
 ---
 name: comsol-63-operations
-description: COMSOL Multiphysics 6.4 + MPh 1.3.1 standalone (clientapi) 操作指南。Use when driving COMSOL 6.4 via the comsol MCP server (mph.Client standalone) or writing/fixing code in the COMSOL_Multiphysics_MCP src/tools/ directory. Covers clientapi vs direct-Model API differences, Electrostatics ChargeConservation trap, Heat Transfer transient pitfalls (TemperatureBoundary / Solid k,rho,Cp / Transient tlist), Wave Optics ewfd periodic metasurface setup (PeriodicStructure/Layered Impedance BC/Drude), Block boundary numbering, mesh/study pitfalls, capacitance + transient thermal verification recipes.
+description: COMSOL Multiphysics 6.4 + MPh 1.3.1 standalone (clientapi) 操作指南。Use when driving COMSOL 6.4 via the comsol MCP server (mph.Client standalone) or writing/fixing code in the COMSOL_Multiphysics_MCP src/tools/ directory. Covers clientapi vs direct-Model API differences, Electrostatics ChargeConservation trap, Heat Transfer transient pitfalls (TemperatureBoundary / Solid k,rho,Cp / Transient tlist), Wave Optics ewfd periodic metasurface setup (PeriodicStructure/Layered Impedance BC/Drude/LayeredMaterial+LML 4级材料层次/wl参数扫描陷阱), Block boundary numbering, mesh/study pitfalls, capacitance + transient thermal verification recipes.
 ---
 
 # COMSOL 6.4 操作指南（MPh standalone / clientapi）
@@ -130,6 +130,66 @@ C = m.evaluate('2*es.intWe/(1[V])^2','pF')  # 1.8593794420
   - 需 Layered Material（Shell property group）定义 Au 薄膜（厚度 + Drude 属性）。
   - Electric displacement field model 选项：Relative permittivity / Refractive index / Loss tangent / **Drude-Lorentz** / Debye / Sellmeier。
   - 文档示例：`enhanced_mems_mirror_coating`（需优化模块许可，本机装不了）。
+
+### ★★ LayeredTransition BC 生效方案（2026-07-07 验证通过）
+**4 级材料层次**（缺一不可，否则 solve 报"未定义材料属性 sigmabnd/murbnd"）：
+```python
+# 1. 全局 Common material mat_au（Drude eps + sigmabnd + murbnd 在 def group）
+mat_au = jm.material().create('mat_au','Common')
+mat_au.propertyGroup('def').set('relpermittivity', au_drude)
+mat_au.propertyGroup('def').set('sigmabnd', '0')   # ★ 必需
+mat_au.propertyGroup('def').set('murbnd', '1')     # ★ 必需
+
+# 2. 全局 LayeredMaterial lm_au（层定义）
+lm = jm.material().create('lm_au','LayeredMaterial')
+lm.set('layername','Au'); lm.set('thickness', str(t_au)); lm.set('link','mat_au')
+lm.propertyGroup('def').set('relpermittivity', au_drude)
+lm.propertyGroup('def').set('sigmabnd', '0'); lm.propertyGroup('def').set('murbnd', '1')
+
+# 3. component LayeredMaterialLink lml_au（限制到 boundary）
+lml = comp.material().create('lml_au','LayeredMaterialLink')
+lml.set('link','lm_au')
+lml.selection().all(); lml.selection().clear(); lml.selection().add([bnd6])  # ★ 只在 interface
+sh = lml.propertyGroup('shell')  # ★ 自动有 shell group
+sh.set('lth', str(t_au)); sh.set('relpermittivity', au_drude)
+sh.set('sigmabnd', '0'); sh.set('murbnd', '1')
+
+# 4. LayeredTransition BC（shelllist 自动=lml_au，但 sigmabnd/murbnd 必须 userdef）
+ltr = p.feature().create('ltr1','LayeredTransitionBoundaryCondition',2)
+ltr.selection().set([bnd6])
+ltr.set('DisplacementFieldModel','RelativePermittivity')
+ltr.set('sigmabnd_mat','userdef'); ltr.set('sigmabnd','0')   # ★ from_mat 不生效！
+ltr.set('murbnd_mat','userdef'); ltr.set('murbnd','1')       # ★ from_mat 不生效！
+ltr.set('lth', str(t_au))
+```
+- **验证**：eps=2.1 介电薄膜 → Rtotal=0.0757（薄膜干涉）；Drude 连续膜 → R(1µm)=0.41, R(5µm)≈1.0。
+- **SingleLayerMaterial** 也可用（`comp.material().create(tag,'SingleLayerMaterial')`），但同样需 LML + sigmabnd/murbnd userdef。
+- **Common material selection 只支持 domain**；LML/SingleLayerMaterial selection 支持 `all()+clear()+add([bnd])` 限制到 boundary。
+- **propertyGroup create('shl','Shell')** 返回 type='def'（clientapi 限制）；LML 自动有 'shell' group（含 lth/lrot/lne/relpermittivity/sigmabnd/murbnd）。
+
+### ★ Drude 波长扫描陷阱（2026-07-07 验证）
+- `ewfd.freq` 在多波长 Wavelength study 中导致阻抗奇异（Jsupx 无法计算，Zs²-Zt²=0）。
+- **解决方案**：`wl` 参数 + `c_const/wl`：
+  ```python
+  jm.param().set('wl','5e-6[m]')
+  au_drude = "1-(1.37e16)^2/((2*pi*c_const/wl)*((2*pi*c_const/wl)+i*4.1e13))"
+  # Study: Wavelength step (plist='5e-6' dummy) + Parametric sweep step
+  study.create('step1','Wavelength'); step.set('punit','m'); step.set('plist','5e-6')
+  study.create('sweep1','Parametric'); sweep.set('pname','wl'); sweep.set('plist','1e-6 2e-6 ...')
+  ```
+- 连续 Au 膜 Drude 扫描：R(1µm)=0.41, R(2µm)=0.93, R(3µm)=0.997, R(4-10µm)≈1.007（金属全反射基线）。
+
+### ★ 空间变化 lth 不可行（已确认）
+- LML Shell group lth 设 `if(x>...)` 表达式 → solve OK 但 R 不变（LML 从全局 LM 读固定 thickness）。
+- 全局 LM 设坐标表达式 → 报错"层定义无效"（全局材料不能用坐标）。
+- **结论**：patch 必须用 **geometry partition**（bnd6 分成 patch + rest）。
+
+### Partition API（进展中，未搞通）
+- WorkPlane：`planetype='quick'` + `quickplane='xy'` + `quickz=<offset>`（faceparallel 的 face selection API 难用）。
+- WorkPlane geom：`wp.geom().feature().create('r1','Rectangle')` + `set('pos',[x0,y0])` + `set('size',[ax,ay])`。
+- PartitionFaces props：`face`(selection), `partitionwith`, `workplane`, `vertexsegment`。
+- **坑**：`pf.selection('face').set('b_air', jarr_i([6]))` 报 Unknown_property → 需用 `partitionwith` 属性（下次继续）。
+- `g.feature('b_air').output()` 不存在（clientapi 无 output()）。用 feature tag 直接作 object tag。
 
 ### 关键 API 笔记
 - `ewfd` 默认特征：`wee1`(波动方程)/`pec1`(PEC)/`init1`(初值)/`dcont1`(连续性)。
