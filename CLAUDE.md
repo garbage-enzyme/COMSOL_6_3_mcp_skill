@@ -4,6 +4,6 @@
 
 ---
 
-The import above pulls in the full `comsol-63-operations` skill (COMSOL 6.3 + MPh 1.3.1 standalone / clientapi operations guide). Claude Code will use it automatically when a task matches the skill's `description` frontmatter.
+The import above pulls in the full `comsol-63-operations` skill (COMSOL 6.4+ with MPh 1.3.1 standalone / clientapi operations guide). Claude Code will use it automatically when a task matches the skill's `description` frontmatter.
 
 For tool-agnostic project rules also readable by Codex / Gemini CLI / Cursor, see `AGENTS.md`.

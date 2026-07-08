@@ -1,14 +1,14 @@
 ---
 name: comsol-63-operations
-description: COMSOL Multiphysics 6.4 + MPh 1.3.1 standalone (clientapi) 操作指南。Use when driving COMSOL 6.4 via the comsol MCP server (mph.Client standalone) or writing/fixing code in the COMSOL_Multiphysics_MCP src/tools/ directory. Covers clientapi vs direct-Model API differences, geometry boundary probing (getUpDown/faceX/faceNormal), fin Form Assembly (imprint=True, createpairs=False), Electrostatics ChargeConservation trap, Heat Transfer transient pitfalls (TemperatureBoundary / Solid k,rho,Cp / Transient tlist), Wave Optics ewfd periodic metasurface setup (PeriodicStructure/Layered Impedance BC/Drude/LayeredMaterial+LML 4级材料层次/wl参数扫描陷阱), Block boundary numbering, mesh/study pitfalls, MIM paper baseline verification recipe.
+description: COMSOL Multiphysics 6.4+ with MPh 1.3.1 standalone (clientapi) 操作指南。Use when driving COMSOL 6.4+ via the comsol MCP server (mph.Client standalone) or writing/fixing code in the COMSOL_Multiphysics_MCP src/tools/ directory. Covers clientapi vs direct-Model API differences, geometry boundary probing (getUpDown/faceX/faceNormal), fin Form Assembly (imprint=True, createpairs=False), Electrostatics ChargeConservation trap, Heat Transfer transient pitfalls (TemperatureBoundary / Solid k,rho,Cp / Transient tlist), Wave Optics ewfd periodic metasurface setup (PeriodicStructure/Layered Impedance BC/Drude/LayeredMaterial+LML 4级材料层次/wl参数扫描陷阱), Block boundary numbering, mesh/study pitfalls, MIM paper baseline verification recipe.
 ---
 
-# COMSOL 6.4 操作指南（MPh standalone / clientapi）
+# COMSOL 6.4+ 操作指南（MPh standalone / clientapi）
 
-教怎么用 comsol MCP 服务器驱动 COMSOL 6.4，以及在 `COMSOL_Multiphysics_MCP/src/tools/` 写/改代码时必须知道的 clientapi 陷阱。所有结论均经实测（ParallelPlateCapacitor C=1.8593794420 pF = 理论值，误差 7e-10 pF；MIM baseline R 全波长与理论一致）。
+教怎么用 comsol MCP 服务器驱动 COMSOL 6.4+，以及在 `COMSOL_Multiphysics_MCP/src/tools/` 写/改代码时必须知道的 clientapi 陷阱。所有结论均经实测（ParallelPlateCapacitor C=1.8593794420 pF = 理论值，误差 7e-10 pF；MIM baseline R 全波长与理论一致）。
 
 ## 环境速查
-- MCP 仓库（clientapi 校准 fork）：`github.com/garbage-enzyme/COMSOL_Multiphysics_MCP_6_3_Calibrated`。在该仓库根目录用目标 Python 环境启动：`python -m src.server`。
+- MCP 仓库（clientapi 校准 fork）：`github.com/garbage-enzyme/COMSOL_Multiphysics_MCP_6_4_Calibrated`。在该仓库根目录用目标 Python 环境启动：`python -m src.server`。
 - **COMSOL 6.4** 自带 Java 21；MPh 1.3.1 + JPype 1.7.x 可用。通常不需要 `sitecustomize.py` JVM patch。
 - COMSOL 6.4 新增 **cuDSS**（CUDA Direct Sparse Solver）。切换方法：Stationary solver 子节点 `dDef.set('linsolver','cudss')`（默认 mumps）。GPU 加速通常需要大规模 DOF 和合适硬件才明显。
 - 前提：COMSOL 必须先启动。`comsol_start` 首次超时正常，用 `comsol_status` 确认。

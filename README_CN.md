@@ -1,8 +1,8 @@
-# COMSOL MCP Skill — 6.3 ClientAPI 操作技能
+# COMSOL MCP Skill — 6.4+ ClientAPI 操作技能
 
 [English](README.md) | 中文
 
-一个 agent skill，教 AI 编码助手如何通过 [comsol MCP server](https://github.com/garbage-enzyme/COMSOL_Multiphysics_MCP_6_3_Calibrated)（MPh 1.3.1 standalone / `clientapi`）驱动 **COMSOL Multiphysics 6.3**，以及在 `src/tools/` 里写/改代码时如何应对 API 不匹配。
+一个 agent skill，教 AI 编码助手如何通过 [comsol MCP server](https://github.com/garbage-enzyme/COMSOL_Multiphysics_MCP_6_4_Calibrated) 及 MPh 1.3.1 standalone / `clientapi` 驱动 **COMSOL Multiphysics 6.4+**，以及在 `src/tools/` 里写/改代码时如何应对 API 不匹配。
 
 ## 兼容：opencode、Claude Code、Codex（以及任何读 AGENTS.md 的工具）
 
@@ -19,7 +19,7 @@
 ## Skill 覆盖内容
 
 - **clientapi vs 直接 Model 的差异** —— `tags()` 遍历 vs int 索引、`feature().size()` vs `len()`、`getNBoundaries()` 首字母大写、`physics().create(tag, type, sdim_String)` 三参数、study step type 用完整名、`mesh.getNumElem()`、用 `jm.study().run()` 而非 `m.study().run()`。
-- **6.3 Electrostatics 陷阱** —— 默认 `fsp1` (FreeSpace) domain feature 用真空 ε₀，忽略材料 `relpermittivity`，必须加 `ChargeConservation` feature + 材料节点。Block 边界编号不是 1–6 ↔ −x/+x/−y/+y/−z/+z（bnd 3 = z=0 面，bnd 4 = z=最大值面）。`Terminal` 的 `V0` 不能正确约束电压 —— 用 `ElectricPotential`。表达式语法：`1[V]^2` 会报语法错误，必须 `(1[V])^2`。
+- **6.3+/6.4 Electrostatics 陷阱** —— 默认 `fsp1` (FreeSpace) domain feature 用真空 ε₀，忽略材料 `relpermittivity`，必须加 `ChargeConservation` feature + 材料节点。Block 边界编号不是 1–6 ↔ −x/+x/−y/+y/−z/+z（bnd 3 = z=0 面，bnd 4 = z=最大值面）。`Terminal` 的 `V0` 不能正确约束电压 —— 用 `ElectricPotential`。表达式语法：`1[V]^2` 会报语法错误，必须 `(1[V])^2`。
 - **网格与求解陷阱** —— COMSOL 不自动创建 mesh 序列；study step type 必须用完整名（`Stationary`，不是 `stat`）。
 - **电容验证 recipe** —— 纯 Python（mph Client）和 MCP 工具流程两版平行板电容器端到端 recipe。验证结果：**C = 1.8593794414 pF**，理论值 1.8593794407 pF（误差 4 × 10⁻¹⁰ pF）。
 - **Wave Optics 超表面陷阱** —— `PeriodicStructure`、Layered Drude 边界、波长-参数扫描（`plistarr`）、PML/periodic-port 陷阱，以及 MIM emitter 的 mesh/mode-selection 诊断。
@@ -32,18 +32,18 @@
 opencode 从 `~/.config/opencode/skills/`（Windows 下 `%USERPROFILE%\.config\opencode\skills\`）自动加载 skill。把 skill 文件夹拷过去：
 
 ```bash
-git clone https://github.com/garbage-enzyme/COMSOL_6_3_mcp_skill.git
+git clone https://github.com/garbage-enzyme/COMSOL_6_4_mcp_skill.git
 mkdir -p ~/.config/opencode/skills
-cp -r COMSOL_6_3_mcp_skill/skills/comsol-63-operations ~/.config/opencode/skills/
+cp -r COMSOL_6_4_mcp_skill/skills/comsol-63-operations ~/.config/opencode/skills/
 ```
 
 Windows PowerShell：
 
 ```powershell
-git clone https://github.com/garbage-enzyme/COMSOL_6_3_mcp_skill.git
+git clone https://github.com/garbage-enzyme/COMSOL_6_4_mcp_skill.git
 $dest = "$env:USERPROFILE\.config\opencode\skills"
 New-Item -ItemType Directory -Path $dest -Force | Out-Null
-Copy-Item -Recurse "COMSOL_6_3_mcp_skill\skills\comsol-63-operations" $dest
+Copy-Item -Recurse "COMSOL_6_4_mcp_skill\skills\comsol-63-operations" $dest
 ```
 
 重启 opencode。skill 的 `description` frontmatter 会自动匹配 COMSOL 相关任务 —— 无需显式调用。
@@ -55,7 +55,7 @@ Copy-Item -Recurse "COMSOL_6_3_mcp_skill\skills\comsol-63-operations" $dest
 全局安装：把 `CLAUDE.md` 的 import 行拷进 `~/.claude/CLAUDE.md`：
 
 ```markdown
-@/absolute/path/to/COMSOL_6_3_mcp_skill/skills/comsol-63-operations/SKILL.md
+@/absolute/path/to/COMSOL_6_4_mcp_skill/skills/comsol-63-operations/SKILL.md
 ```
 
 ### 方式 C —— Codex CLI / Gemini CLI / Cursor（AGENTS.md）
@@ -65,7 +65,7 @@ Copy-Item -Recurse "COMSOL_6_3_mcp_skill\skills\comsol-63-operations" $dest
 Codex 全局安装：在 `~/.codex/AGENTS.md` 追加一行指针：
 
 ```markdown
-For COMSOL 6.3 MCP tasks, read /absolute/path/to/COMSOL_6_3_mcp_skill/skills/comsol-63-operations/SKILL.md first.
+For COMSOL 6.4+ MCP tasks, read /absolute/path/to/COMSOL_6_4_mcp_skill/skills/comsol-63-operations/SKILL.md first.
 ```
 
 ### 方式 D —— 直接看
@@ -76,8 +76,8 @@ skill 就是单个 markdown 文件。打开 `skills/comsol-63-operations/SKILL.m
 
 本 skill 假设你已有：
 
-- 已安装并运行的 COMSOL Multiphysics 6.3
-- 在你的 AI 工具（opencode / Claude Code / Codex）里配置好的 [comsol MCP server fork](https://github.com/garbage-enzyme/COMSOL_Multiphysics_MCP_6_3_Calibrated)
+- 已安装并运行的 COMSOL Multiphysics 6.4 或更新版本
+- 在你的 AI 工具（opencode / Claude Code / Codex）里配置好的 [comsol MCP server fork](https://github.com/garbage-enzyme/COMSOL_Multiphysics_MCP_6_4_Calibrated)
 - MCP server 的 Python 环境里有 MPh 1.3.1 + JPype
 
 skill 本身无依赖 —— 它只是给 agent 的指令。
@@ -98,7 +98,7 @@ skill 本身无依赖 —— 它只是给 agent 的指令。
 
 ## 来源
 
-本 skill 提炼自一次真实调试会话：AI 助手（opencode + glm-5.2）在人工指导下为 6.3 clientapi 校准 MCP server 的 `src/tools/`，随后通过 MCP 工具接口端到端验证。配套的 fork 仓库有代码改动和完整 `git log`。
+本 skill 提炼自真实调试会话：AI 助手在人工指导下为 COMSOL standalone `clientapi` 校准 MCP server 的 `src/tools/`，随后通过 MCP 工具接口端到端验证。配套的 fork 仓库有代码改动和完整 `git log`。
 
 ## 许可证
 
