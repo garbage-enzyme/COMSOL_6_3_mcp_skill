@@ -1,6 +1,6 @@
 ---
 name: comsol-63-operations
-description: COMSOL Multiphysics 6.4+ with MPh 1.3.1 standalone (clientapi) 操作指南。Use when driving COMSOL 6.4+ via the comsol MCP server (mph.Client standalone) or writing/fixing code in the COMSOL_Multiphysics_MCP src/tools/ directory. Covers clientapi vs direct-Model API differences, geometry boundary probing (getUpDown/faceX/faceNormal), fin Form Assembly (imprint=True, createpairs=False), Electrostatics ChargeConservation trap, Heat Transfer transient pitfalls (TemperatureBoundary / Solid k,rho,Cp / Transient tlist), Wave Optics ewfd periodic metasurface setup (PeriodicStructure/Layered Impedance BC/Drude/LayeredMaterial+LML 4级材料层次/wl参数扫描陷阱), Block boundary numbering, mesh/study pitfalls, MIM paper baseline verification recipe.
+description: COMSOL Multiphysics 6.4+ with MPh 1.3.1 standalone (clientapi) 操作指南。Use when driving COMSOL 6.4+ via the comsol MCP server (mph.Client standalone) or writing/fixing code in the COMSOL_Multiphysics_MCP src/tools/ directory. Covers clientapi vs direct-Model API differences, geometry boundary probing (getUpDown/faceX/faceNormal), fin Form Assembly (imprint=True, createpairs=False), Electrostatics ChargeConservation trap, Heat Transfer transient pitfalls (TemperatureBoundary / Solid k,rho,Cp / Transient tlist), Wave Optics ewfd periodic metasurface setup (PeriodicStructure/Layered Impedance BC/Drude/LayeredMaterial+LML 4级材料层次/wl参数扫描陷阱), 1D hybrid metagrating Au/aSi MaGMR-SPP thermal emitters, Block boundary numbering, mesh/study pitfalls, MIM paper baseline verification recipe.
 ---
 
 # COMSOL 6.4+ 操作指南（MPh standalone / clientapi）
@@ -238,6 +238,26 @@ ltr.set('lth', str(t_au))
 - High-density MIM spectra can be stable at moderate fine mesh, while lower densities may select long-wave side modes unless focused finer probes are run near the expected Fig.2 peak.
 - In one verified In:CdO MIM case, `hmax=0.015*wl` probes moved `n=2e20` and `1.5e20` back to the expected main peaks, but `n=1e20` still favored a longer-wave peak. Do not claim full low-density agreement without field-profile or dielectric-function evidence.
 - COMSOL memory sawtooth cycles during a sweep often correspond to one wavelength point: assembly/factorization raises memory, result write/free lowers it. Use as a progress hint only.
+
+### Final-check addendum
+- In a verified In:CdO MIM run, focused fine sweeps moved one mid-density point back to the paper peak and confirmed another point's higher FEM global peak within tolerance. Use focused fine sweeps before calling a side peak physical or spurious.
+- Point-field profiles at competing wavelengths can show whether peaks belong to the same mode family. Similar field distributions imply a method/boundary-condition residual rather than a simple material-parameter error.
+
+## Zhou 2024 1D hybrid metagrating notes
+- Paper target: Zhou et al., IEEE Sensors Journal 24(13), 2024, DOI `10.1109/JSEN.2024.3400828`.
+- Structure: 1D Au grating plus aSi cladding. TM excites SPPs on Au; TE excites MaGMR in aSi.
+- Main missing input before precision matching: the paper's supplementary material, especially Fig. S1 for aSi/Au dielectric constants. Use Palik as a first pass only.
+- Targets:
+  | Structure | P | W | H2 | H1 | TE peak | TM peak |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | I | 1.40 um | 0.70 um | 0.10 um | 0.44 um | 3.31 um | 4.23 um |
+  | II | 1.75 um | 0.80 um | 0.10 um | 0.61 um | 4.28 um | 5.27 um |
+  | III | 2.00 um | 0.90 um | 0.10 um | 0.61 um | 4.61 um | 5.71 um |
+- Start with Structure II. Prefer a 2D x-z unit cell with x periodicity and ridge direction y; fall back to a thin 3D periodic cell only if TE/TM setup is blocked.
+- Polarization map: TE = E parallel to ridge, dominant Ey, MaGMR/aSi mode; TM = Ex/Ez, SPP/Au-surface mode. Verify with field profiles before trusting labels.
+- Geometry first guess: total Au 200 nm, etched grating depth H2=100 nm, residual Au mirror 100 nm, ridge width W, period P, flat aSi cladding thickness H1. If peaks shift systematically, test whether H1 is measured from groove bottom rather than ridge top.
+- Smoke sweep Structure II over 3.5-6.0 um at 0.05 um step; refine peaks at 0.005-0.01 um for Q extraction. Structure II Q targets are TE ~126 and TM ~51.
+- Fig.2 sweeps after smoke validation: P 1.4-1.9 um, H1 0.5-0.8 um plus 0.8-2.5 um for FP coupling, H2 0.08-0.11 um, and W sweep from SI Fig. S3.
 
 ## 调试技巧
 - 探测 clientapi 方法/重载：`for mth in obj.getClass().getMethods(): if str(mth.getName())=='create': ...`（JPype 反射，注意 `str(p.getName())` 避免 Java String 报错）。
