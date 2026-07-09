@@ -475,6 +475,31 @@ ps.set("LinearPol", "S")  # or P, depending on rdir1 convention
 For staged angle sweeps, set `theta/phi` as model parameters before each one-wavelength solve. It is not necessary to use Wavelength-step auxiliary sweep for angle if the solve is staged. Keep `wl` as the wavelength parameter when material expressions use `wl`.
 
 Runtime reference from Zhou2025 local_060: one `(theta, wl)` solve point took about 10.7-14.1 s; a 28-30 point scan for one theta is roughly 5-6 min plus setup/save overhead.
+
+## Zhou 2025 2D nanopillar QBIC metasurface (verified workflow)
+Paper context: Zhou et al., Nano Letters 2025 QBIC thermal emitter with four Si/SiO2 nanopillars on Au. Use these notes for 2D periodic nanopillar/metasurface reproductions that need geometry perturbation, angle sweeps, and field-profile evidence.
+
+### SI Fig. S8 geometry and polarization traps
+- The four-pillar rectangular supercell is a two-column zigzag representation of the hexagonal perturbation. Use `Px=a`, `Py=a*sqrt(3)`, `SCY=2*Py`, `Dy=Py/2`, `y0=Py/4` at the corrected hexagonal endpoint.
+- Same-column pillar separation is `Py`, not `Py/2`. Verified positions for `D=1.2 um`, `a=2.771 um`: Col A `P1=(Px/4, y0+Dy)`, `P2=(Px/4, y0+Py+Dy)`; Col B `P4=(3Px/4, y0)`, `P3=(3Px/4, y0+Py)`.
+- For this topology, set `rdir1` along the y-directed top-port edge so `LinearPol=S` maps to the paper TE convention. If `rdir1` changes, re-check S/P labels with a one-point polarization diagnostic.
+
+### Local mesh and staged sweeps
+- A local mesh can be faster and more useful than global refinement: keep air coarse (about `0.16*wl`) and refine pillars/metal/dielectric domains (about `0.06*wl`). Zhou2025 local_060 used about 26k elements and 10-14 s per one-wavelength solve.
+- Do not judge mesh convergence by evaluating all meshes at an old peak wavelength. Finer meshes can shift a narrow QBIC resonance; compare each mesh at its own bracketed peak.
+- Use staged one-wavelength solves for H2, Delta-y, and angle sweeps: set `wl`/geometry/angle parameters, run `std1`, evaluate `ewfd.Rtotal/Ttotal/Atotal`, append CSV immediately, then continue. This makes long sweeps resumable and preserves partial results.
+- Label peak candidates that occur on a scan boundary as boundary maxima, not real peaks. Extend or mark them as low-response/BIC-region evidence.
+
+### Angle and field-profile validation
+- Use the verified `PeriodicStructure` angle API: model parameters `theta`, `phi`; set `ps1.alpha1_inc=theta`, `ps1.alpha2_inc=phi`, mirrored on `pport1` and `pport2`. Do not search for `Theta0`/`Phi0`.
+- For mode validation, export on-peak and off-peak fields with identical grids and shared color scales. Report both images and max-field ratios; this is stronger evidence than an on-peak field plot alone.
+- Zhou2025 accepted field check: on-peak `4.253 um` vs off-peak `4.20 um` gave `max(normE) ~= 2.94e8/7.32e7 = 4.0x`, `max(Ex) ~= 2.24e8/5.57e7 = 4.0x`, and `max(Ez) ~= 1.76e8/4.20e7 = 4.2x`. The mode is mainly `Ex+Ez` and localized around the aSi/SiO2 pillar region, supporting a real QBIC mode rather than a numeric spectral artifact.
+
+### Accepted reproduction benchmarks
+- Main normal-incidence TE peak: `wl ~= 4.253 um`, emissivity `~=0.924`, energy sum `R+T+A ~= 1`.
+- H2 sweep should show `QBIC -> BIC -> QBIC`: high around `H2=0.32-0.34 um`, weak around `H2=0.36-0.38 um`, high again around `H2=0.42 um`.
+- Delta-y sweep should show weak response at `Dy=0` and strong response at `Dy=Py/2`.
+- Angle sweep in the reproduced rectangular-supercell model is angle-dependent: emissivity drops from about `0.924` at `theta=0 deg` to about `0.213` at `theta=60 deg`, with a blue shift of about `47 nm`; do not claim strong angle insensitivity without additional evidence.
 ## Debugging tips
 - Probe clientapi methods/overloads: `for mth in obj.getClass().getMethods(): if str(mth.getName())=='create': ...` (JPype reflection, note `str(p.getName())` to avoid Java String errors).
 - Geometry bbox: `g.getBoundingBox()` returns `[xmin,xmax,ymin,ymax,zmin,zmax]`.
