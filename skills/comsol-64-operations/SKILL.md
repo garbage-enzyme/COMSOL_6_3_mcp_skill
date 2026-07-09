@@ -353,6 +353,61 @@ grid = griddata((xs, zs), vs, (XI, ZI), method="linear")
   - TM SPP: `|Ex|` and `|Ez|` dominate (max ~1e8), `|Ey|` near zero (max ~1e6).
   - TE MaGMR: `|Ey|` dominates (max ~1e8), `|Ex|` and `|Ez|` near zero.
 
+## Parameter sweep workflow (geometry perturbation, verified on Zhou 2024 Fig.2)
+
+### In-place geometry modification pattern
+For parameter sweeps that only change block dimensions (not topology), modify the
+existing geometry features in-place and re-run, then re-mesh. No need to reload
+the model or recreate physics/study.
+```python
+geom = comp.geom("geom1")
+for tag, (sx, sy, sz, px, py, pz) in new_dims.items():
+    f = geom.feature(tag)
+    f.set("size", JArray(JDouble)([sx, sy, sz]))
+    f.set("pos", JArray(JDouble)([px, py, pz]))
+geom.feature("fin").set("action", "union")
+geom.run()
+# Re-classify boundaries (top/bottom numbers are stable but re-probe to be safe)
+bnd_info = classify_bnds(geom)
+# Rebuild mesh on modified geometry
+comp.mesh("mesh1").run()
+```
+
+### Coarse-then-fine peak finding per parameter point
+For each parameter value:
+1. **Coarse sweep**: wide wavelength range, 0.05 µm step, both polarizations.
+2. **Find coarse peak**: `np.argmax(vals)` on the 1-R curve.
+3. **Fine sweep**: ±0.10–0.15 µm around coarse peak, 0.005 µm step.
+4. **Lorentzian fit** on fine data for Q = λ_peak / FWHM.
+5. **Record**: (param, value, TM_peak, TM_Q, TM_emis, TE_peak, TE_Q, TE_emis, note).
+
+### Scan range auto-scaling by period
+For grating structures where resonance wavelength scales with period P:
+```python
+P_um = P * 1e6
+wl_min = max(2.0, P_um * 1.5)
+wl_max = P_um * 3.5
+```
+This avoids wasting time scanning irrelevant wavelengths for small/large P values.
+
+### Mode switching at small period
+For small P values (e.g. P=1.40–1.60 µm in Zhou 2024), the TE MaGMR peak may
+**jump to a short-wavelength side mode** (~2.4–2.5 µm) instead of the expected
+~3.3 µm peak. This is a real mode switching (different MaGMR order), not a
+simulation error. The paper's Fig.2(e) shows the same behavior. Always check
+field profiles if peak assignment is ambiguous.
+
+### Timeout resilience for long multi-point sweeps
+- 23 parameter points × (coarse ~80 + fine ~40) × 2 pol × ~2s ≈ 3 hours.
+- Split into two scripts: main sweep + resume script that reads existing CSV
+  and runs only missing points. Copy base-case results from existing rows.
+- Each point writes to summary CSV immediately (append mode).
+- **W sweep**: paper says W fine-tunes SPP via filling factor but TE/MaGMR
+  is nearly independent of W. Confirmed: TM shifts 5.17→5.43 µm across
+  W=0.6–1.0, TE stays at ~4.36 µm.
+- **H2 sweep**: both TM and TE peaks nearly independent of H2 around 0.1 µm
+  (robustness check only).
+
 ## 调试技巧
 - 探测 clientapi 方法/重载：`for mth in obj.getClass().getMethods(): if str(mth.getName())=='create': ...`（JPype 反射，注意 `str(p.getName())` 避免 Java String 报错）。
 - 几何 bbox：`g.getBoundingBox()` 返回 `[xmin,xmax,ymin,ymax,zmin,zmax]`。
