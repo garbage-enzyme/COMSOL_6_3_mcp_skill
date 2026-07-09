@@ -108,6 +108,17 @@ COMSOL 不自动建 mesh。**MCP 工具**：`mesh_sequence_create(mesh_name='mes
 - 子节点选择器自动分配且锁定，不要手动 set。`addDiffractionOrders`：`ps1.runCommand("addDiffractionOrders")`。
 - 参考示例：`metasurface_beam_deflector.mph`（Rtotal=0.122 验证通过）、`plasmonic_wire_grating.mph`、`hexagonal_grating.mph`。
 
+### 3D PeriodicStructure rdir1 / axisy trap
+- From-scratch **3D** `PeriodicStructure` may create `ps1/rdir1` with an empty selection. Symptom during solve: `comp1.ewfd.axisy` or `axisx/axisy` undefined on the periodic port boundary.
+- Fix by selecting one edge on the excited port to define the first primitive vector: `ps.feature("rdir1").selection().set([edge_id])`. Pick an edge parallel to the intended lattice vector. For a 1D grating with period along `x`, use a top-port edge along `x`.
+- 3D `edgeX` probing must use `edgeParamRange(edge)` first; the parameter range is not always `[0,1]`. Use midpoint/endpoint values from the returned range.
+- The `PeriodicStructure` subnode has its own `wee1`. If materials are Common materials with `relpermittivity`, also set `ps.feature("wee1").set("DisplacementFieldModel", "RelativePermittivity")`, `mur_mat="userdef"`, `mur="1"`, `sigma_mat="userdef"`, `sigma="0"`.
+- After setting `rdir1`, call `ps.runCommand("addDiffractionOrders")` when diffraction orders are needed.
+
+### Long standalone sweep robustness
+- Prefer staged one-point solves for fragile wavelength sweeps: set `jm.param().set("wl", value)`, run `jm.study("std1").run()`, evaluate with `EvalGlobal`, append CSV immediately. This avoids COMSOL/mph outer-sweep evaluation surprises such as only seeing the last point.
+- Standalone `mph.Client` scripts may finish saving files but not exit because JVM/helper threads stay alive. After all outputs are flushed and saved, `os._exit(0)` is acceptable for long-running handoff scripts.
+
 ### ★ 端口失效根因 + 解决方案（PDF 文档 p151, p179-181）
 - **根因**：Periodic port 假设**端口相邻域是均匀各向同性介质**（WaveOpticsModuleUsersGuide.pdf p151）。金属 patch（Drude 负 ε）在域中违反此假设，即使端口在空气域也失效。极简测试：介电 patch→R=1.08正常；金属 patch→R=0失效。
 - **解决方案：Layered Impedance Boundary Condition**（p179-181）：
@@ -259,6 +270,11 @@ ltr.set('lth', str(t_au))
 - Geometry first guess: total Au 200 nm, etched grating depth H2=100 nm, residual Au mirror 100 nm, ridge width W, period P, flat aSi cladding thickness H1. If peaks shift systematically, test whether H1 is measured from groove bottom rather than ridge top.
 - Smoke sweep Structure II over 3.5-6.0 um at 0.05 um step; refine peaks at 0.005-0.01 um for Q extraction. Structure II Q targets are TE ~126 and TM ~51.
 - Fig.2 sweeps after smoke validation: P 1.4-1.9 um, H1 0.5-0.8 um plus 0.8-2.5 um for FP coupling, H2 0.08-0.11 um, and W sweep from SI Fig. S3.
+
+### Zhou2024 3D thin-cell update
+- If a 2D `plasmonic_wire_grating` template locks TM to the bulk SPP near `6.025 um` or cannot run TE/Ey, switch the main route to a thin 3D periodic cell. 3D `PeriodicStructure` supports `LinearPol = S/P/Mixed` when `rdir1` is set.
+- Validated Structure II smoke after `rdir1=edge17`: P/TM at `5.27 um` gives `R=0.191165`, `A=0.808818`, `T~=0`, `R+T+A=1.000000`; P at `6.025 um` drops to `A=0.033004`. This indicates the 3D route excites the paper-like leaky SPP instead of the 2D bulk-SPP control.
+- TE/S at `4.28 um` was still weak (`A~=0.047793`) in the first smoke. Next diagnostics: verify Ey field localization in aSi with field profiles, test `LinearPol=S/Mixed`, and if needed test a different top-port reference edge such as the edge along `y` to confirm S/P mapping.
 
 ## 调试技巧
 - 探测 clientapi 方法/重载：`for mth in obj.getClass().getMethods(): if str(mth.getName())=='create': ...`（JPype 反射，注意 `str(p.getName())` 避免 Java String 报错）。
