@@ -257,19 +257,43 @@ ltr.set('lth', str(t_au))
 ## Zhou 2024 1D hybrid metagrating (verified recipe)
 Paper: Zhou et al., IEEE Sensors Journal 24(13), 2024. Structure: 1D Au grating + aSi cladding. TM excites leaky SPP on Au; TE excites MaGMR (guided-mode resonance) in aSi.
 
-### Key results (Structure II, 3D thin-cell FEM)
-| Mode | FEM | Paper | Q | Emissivity |
-| --- | --- | --- | --- | --- |
-| TM SPP | 5.295 µm | 5.27 µm | 46 | 0.993 |
-| TE MaGMR | 4.360 µm | 4.28 µm | 125 | 0.982 |
-Geometry: P=1.75µm, W=0.80µm, H2=0.10µm (groove depth), H1=0.61µm (aSi on ridge), Au mirror 0.10µm. Materials: Au Drude (wp=1.37e16, gamma=1e14), aSi lossless eps=11.9, Air eps=1. Mesh: ~12k elements, ~2s/solve per wl.
+### Key results (all three structures verified, 3D thin-cell FEM)
+| Structure | Mode | FEM | Paper | Q | Emissivity |
+| --- | --- | --- | --- | --- | --- |
+| I | TM SPP | 4.250 µm | 4.23 µm | 31 | 0.954 |
+| I | TE MaGMR | 3.395 µm | 3.31 µm | 104 | 0.944 |
+| II | TM SPP | 5.295 µm | 5.27 µm | 46 | 0.993 |
+| II | TE MaGMR | 4.360 µm | 4.28 µm | 125 | 0.982 |
+| III | TM SPP | 5.763 µm | 5.71 µm | 47 | 0.994 |
+| III | TE MaGMR | 4.715 µm | 4.61 µm | 133 | 0.991 |
 
-### Targets (all three structures)
+All 6 peaks match within 0.11 µm. Materials: Au Drude (wp=1.37e16, gamma=1e14), aSi lossless eps=11.9, Air eps=1. Mesh: 9k–14k elements, ~2s/solve per wl.
+
+### Structure parameters
 | Structure | P | W | H2 | H1 | TE peak | TM peak |
 | --- | --- | --- | --- | --- | --- | --- |
 | I | 1.40 µm | 0.70 µm | 0.10 µm | 0.44 µm | 3.31 µm | 4.23 µm |
 | II | 1.75 µm | 0.80 µm | 0.10 µm | 0.61 µm | 4.28 µm | 5.27 µm |
 | III | 2.00 µm | 0.90 µm | 0.10 µm | 0.61 µm | 4.61 µm | 5.71 µm |
+
+### Geometry template reuse pattern (verified for all 3 structures)
+Loading an existing .mph (built via MCP geometry tools) and modifying block `size`/`pos` is more reliable than building from scratch. The `FormUnion` ("fin") feature auto-exists; just set `action="union"` and `geom.run()`.
+
+```python
+geom = comp.geom("geom1")
+for tag, (sx, sy, sz, px, py, pz) in new_dims.items():
+    f = geom.feature(tag)          # e.g. "blk2".."blk7"
+    f.set("size", JArray(JDouble)([sx, sy, sz]))
+    f.set("pos", JArray(JDouble)([px, py, pz]))
+geom.feature("fin").set("action", "union")
+geom.run()
+```
+
+- Block tags are auto-generated (blk2..blk7 for 6 blocks), NOT named by the user.
+- Read existing tags: `list(geom.feature().tags())`; read size/pos: `f.getString("size")` returns comma-separated string.
+- **Domain mapping must be hardcoded** — auto-detection by boundary center probing fails for thin layers (100nm Au between 1µm air and 0.1µm ridge). Same blk order → same domain numbering: dom 1=air_below, 2=au_mirror, 3=au_ridge, 4=aSi_cover, 5=air_top, 6=aSi_groove.
+- **rdir1 edge number is topology-invariant** — same block layout → same edge numbering. Hardcode after first probe (edge 17 for this 6-block layout).
+- Y-dimension for thin cell: 0.4 µm works for λ 3–6 µm (1–2 mesh elements in y).
 
 ### Polarization mapping
 - TE = E field parallel to ridge (y-direction). Dominant Ey, MaGMR mode in aSi layer.
