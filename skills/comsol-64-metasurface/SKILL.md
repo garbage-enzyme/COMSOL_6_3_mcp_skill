@@ -1,6 +1,6 @@
 ---
 name: comsol-64-metasurface
-description: COMSOL Multiphysics 6.4+ with MPh 1.3.1 standalone (clientapi) operations guide. Use when driving COMSOL 6.4+ via the comsol MCP server (mph.Client standalone) or writing/fixing code in the COMSOL_Multiphysics_MCP src/tools/ directory. Covers clientapi vs direct-Model API differences, geometry boundary probing (getUpDown/faceX/faceNormal), fin Form Assembly (imprint=True, createpairs=False), Electrostatics ChargeConservation trap, Heat Transfer transient pitfalls (TemperatureBoundary / Solid k,rho,Cp / Transient tlist), Wave Optics ewfd periodic metasurface setup (PeriodicStructure/Layered Impedance BC/Drude/LayeredMaterial+LML 4-level material hierarchy/wl parameter sweep trap), 1D hybrid metagrating Au/aSi MaGMR-SPP thermal emitters, Block boundary numbering, mesh/study pitfalls, MIM paper baseline verification recipe.
+description: COMSOL Multiphysics 6.4+ with MPh 1.3.1 standalone (clientapi) operations guide. Use when driving COMSOL through mph.Client or the comsol MCP server, writing/fixing COMSOL_Multiphysics_MCP tools, or auditing periodic metasurface FEM results. Covers clientapi traps, geometry/boundary probing, physics and study setup, periodic ports/manual Floquet/PML, wavelength-dependent materials, provenance-safe staged sweeps, power closure, polarization verification, mesh convergence, and FEM/RCWA bridge diagnostics.
 ---
 
 # COMSOL 6.4+ Operations Guide (MPh standalone / clientapi)
@@ -518,6 +518,84 @@ Paper context: Zhou et al., Nano Letters 2025 QBIC thermal emitter with four Si/
 - H2 sweep should show `QBIC -> BIC -> QBIC`: high around `H2=0.32-0.34 um`, weak around `H2=0.36-0.38 um`, high again around `H2=0.42 um`.
 - Delta-y sweep should show weak response at `Dy=0` and strong response at `Dy=Py/2`.
 - Angle sweep in the reproduced rectangular-supercell model is angle-dependent: emissivity drops from about `0.924` at `theta=0 deg` to about `0.213` at `theta=60 deg`, with a blue shift of about `47 nm`; do not claim strong angle insensitivity without additional evidence.
+## Cross-project audit rules
+
+### Verify physical polarization and angle path
+
+- `PeriodicStructure.rdir1` does not make S/P labels self-explanatory. Verify the
+  incident field in a named homogeneous top-air selection, preferably off resonance.
+  Record RMS or median `abs(Ex)`, `abs(Ey)`, and `abs(Ez)`, entity IDs, and coordinate
+  range. Do not use resonator maxima or whole-model averages.
+- Require a comfortably dominant target/transverse ratio, for example `>=20`, before
+  a long scan. If it fails, repair the reference direction/port setup first.
+- A single `alpha1_inc` sweep is one momentum path. Before an angle map, test two
+  orthogonal in-plane directions and both S/P at sparse angles. Record evaluated
+  wavevectors and field components; match the paper's incidence plane and azimuth.
+
+### Require physical power closure
+
+- `A_vol=int(Qh)/P_inc` and `A_csc=sigmaAbs/unit_cell_area` may agree because they
+  share one normalization. Agreement proves internal consistency, not energy closure.
+- For a passive periodic cell require `0<=R,T,A<=1` and
+  `abs(R+T+A-1)<=1e-3`, or a documented independently validated equivalent.
+- If a scattered-field architecture gives `A>1` or cannot provide independent R/T,
+  retain it only for field/mode-location diagnostics. Prefer a physically closed port
+  model plus independent RCWA for quantitative evidence.
+
+### Bracket high-Q peaks and preserve wavelength controls
+
+- Fully bracket both sides before reporting FWHM or Q. Lorentzian, Fano,
+  absolute-half, and half-prominence widths are not interchangeable; save the fit
+  method and residuals.
+- Compare each mesh at its own bracketed resonance. A fixed old-peak wavelength is a
+  diagnostic, not mesh convergence.
+- When dispersion uses global `wl`, record requested wavelength, evaluated `wl`, and
+  `c_const/ewfd.freq` in every row. Treat systematic disagreement as a hard gate.
+
+### Treat run provenance as part of the result
+
+- Never append different geometry, material, physics, mesh, or normalization
+  configurations to one CSV. Give each configuration a stable `config_id` and use a
+  new file when it changes.
+- Record source model path/SHA-256, requested/evaluated wavelengths, polarization,
+  mesh expressions and element count, R/T/A/sum, validation, solve time, and error.
+  Add per-domain Qh and sampling-selection IDs when relevant.
+- A filename or report label is not mesh evidence. Rebuild the mesh in the driver,
+  query feature values and element count, then persist them before solving.
+- Resume only `status=ok` rows whose `config_id` matches. Retry errors. Solve one
+  wavelength at a time; append, flush, and `fsync` immediately; checkpoint the model.
+
+### Use a common-baseline bridge for cross-method offsets
+
+1. Audit FEM and independent-solver inputs offline: geometry bounding boxes, full
+   inclusion dimensions/centers, material expressions and loss signs, selections,
+   layer terminations, periodic vectors, incidence, wavelength controls, mesh, and
+   study features.
+2. If any nominal input differs, create a named immutable common working baseline.
+3. Run a small bridge matrix around every competing candidate before a broad scan;
+   record actual polarization and physical closure.
+4. Search every local maximum, then refine and bracket each branch.
+5. Rebuild explicitly named meshes and locate each mesh's own peak.
+6. Explain a FEM/RCWA peak offset only after the common-baseline gate passes.
+
+### Hand visual mode gates to an image-capable agent
+
+- A text-only solver agent may generate identical-grid on/off-resonance E/H arrays
+  and PNGs, shared color limits, slice coordinates, and quantitative component/on-off
+  ratios. It must not infer visual symmetry, localization, magnetic-dipole character,
+  overlay quality, or mode identity from unseen images.
+- Stop at that gate and hand exact paths, slice definitions, color limits, and the
+  numerical summary to Codex or another image-capable agent. Require a written visual
+  assessment before assigning a mode or promoting report figures.
+
+### Solver ownership and audit order
+
+- Use one heavy solver owner. Do not run a large standalone COMSOL solve beside a
+  high-order MATLAB RCWA job.
+- Resolve failures in this order: wavelength/material synchronization, physical
+  polarization, power closure, bracket/convergence, mode identity, then secondary
+  figures or cosmetic tuning.
+
 ## Debugging tips
 - Probe clientapi methods/overloads: `for mth in obj.getClass().getMethods(): if str(mth.getName())=='create': ...` (JPype reflection, note `str(p.getName())` to avoid Java String errors).
 - Geometry bbox: `g.getBoundingBox()` returns `[xmin,xmax,ymin,ymax,zmin,zmax]`.
