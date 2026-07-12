@@ -1,6 +1,6 @@
 ---
 name: comsol-64-metasurface
-description: COMSOL Multiphysics 6.4+ with MPh 1.3.1 standalone (clientapi) operations guide. Use when driving COMSOL through mph.Client or the comsol MCP server, writing/fixing COMSOL_Multiphysics_MCP tools, or auditing periodic metasurface FEM results. Covers runtime capability/ownership checks, clientapi traps, geometry probing, correct Wave Optics interface creation, oblique periodic cells, FreeTri/CopyFace meshes, periodic ports/manual Floquet/PML, dispersive materials, staged sweeps, power closure, polarization, and convergence.
+description: COMSOL Multiphysics 6.4+ with MPh 1.3.1 standalone (clientapi) operations guide. Use when driving COMSOL through mph.Client or the comsol MCP server, writing/fixing COMSOL_Multiphysics_MCP tools, or auditing periodic metasurface FEM results. Covers clientapi traps, geometry/boundary probing, physics and study setup, periodic ports/manual Floquet/PML, wavelength-dependent materials, provenance-safe staged sweeps, power closure, polarization verification, mesh convergence, and FEM/RCWA bridge diagnostics.
 ---
 
 # COMSOL 6.4+ Operations Guide (MPh standalone / clientapi)
@@ -11,7 +11,7 @@ How to drive COMSOL 6.4+ via the comsol MCP server, and clientapi pitfalls you m
 - MCP repo (clientapi-calibrated fork): `github.com/garbage-enzyme/COMSOL_Multiphysics_MCP_6_4_Calibrated`. Start from repo root with target Python env: `python -m src.server`.
 - **COMSOL 6.4** ships with Java 21; MPh 1.3.1 + JPype 1.7.x work. Usually no `sitecustomize.py` JVM patch needed.
 - COMSOL 6.4 adds **cuDSS** (CUDA Direct Sparse Solver). Switch: Stationary solver subnode `dDef.set('linsolver','cudss')` (default mumps). GPU acceleration typically needs large DOF and suitable hardware to be noticeable.
-- Prerequisite: COMSOL must be started first. `comsol_start` first-call timeout is normal; use `comsol_status` to confirm.
+- Interactive MCP sessions: start COMSOL with `comsol_start`; its first-call timeout is normal, so poll `comsol_status` rather than retrying. Durable H1 jobs are different: their detached worker starts `mph.Client` only after M2 preflight and lease acquisition.
 - **After modifying `src/tools/` source, must restart the host agent/CLI** (MCP server is a subprocess, no hot-reload).
 
 ### Current MCP capability gate (verified 2026-07-12)
@@ -19,6 +19,23 @@ How to drive COMSOL 6.4+ via the comsol MCP server, and clientapi pitfalls you m
 - Call `capabilities` and `solver_status` before solver work. The calibrated fork's default `full` profile is a 98-tool backward-compatibility surface; its `wave_optics` profile is explicitly experimental, while ownership, model, geometry, mesh, study, results transport, staged CSV, and durable-job infrastructure are verified.
 - Treat runtime tool discovery as authoritative instead of embedding an old tool count in automation. Profile changes require an MCP-host restart.
 - `comsol_start` is nonblocking. Poll `comsol_status`; never call start again while `starting=true`.
+
+## Durable H1 jobs (same-host multi-agent control)
+
+- Use `solver_status` before every heavy action. If an active lease or external MPh/COMSOL process is reported, do not call `mph.Client()` or `comsol_start`.
+- For multi-point production work, prefer `job_submit(staged_sweep spec)` over a blocking MCP sweep. The worker owns the global solver lease; submitter agents own only control-plane state.
+- Agents on the **same Windows host** may share a job only when they use the same ASCII runtime root (`D:\comsol_runtime` when D: exists, otherwise `C:\ProgramData\comsol_mcp_runtime`), can see the same source MPH path, and run H1-capable MCP code. Set `COMSOL_MCP_RUNTIME_DIR` to select another shared local root. Any agent may use `job_status`, `job_tail`, or `solver_status`; `job_resume` revalidates the immutable spec and ownership evidence.
+- This is not distributed execution: different machines, different runtime roots, or network-share locking are outside H1. Do not assume durable-job state or leases synchronize across hosts.
+- H1 artifacts live under `<runtime>\jobs\<job_id>\`: immutable `spec.json`, atomic `state.json`, fsync'd event/CSV journals, control request, checkpoint, and worker log. `COMSOL_MCP_JOBS_DIR` is only a compatibility override; with `COMSOL_MCP_RUNTIME_DIR`, it must be exactly `<runtime>\jobs`. Keep runtime artifacts on local ASCII storage; Unicode source MPH paths are allowed in UTF-8 JSON.
+- Published H1 controls (`job_submit`, `job_status`, `job_tail`, validated `job_resume`) are durable and solver-free. Same-host Codex/opencode agents share them only through the same ASCII runtime root; they are not cross-machine coordination.
+- H2 is graduated for same-host durable `staged_sweep` jobs: `real_cancellation=true`. The exact COMSOL 6.4.0.293/MPh 1.3.1 profile uses verified `ProgressContext.cancel()`; nonmatching environments use exact-identity owned-process fallback. Three real cancellation/resume runs, coordinator loss plus MCP-host restart, lease/port cleanup, source integrity, duplicate-free resume, the 160-test default suite, and the explicit real-COMSOL profile passed on 2026-07-12. This does not provide cross-host or distributed cancellation.
+- `cancelled` is legitimate only after exact worker/descendant cleanup evidence. Never infer it from a requested cancellation, a returned native call, or a missing PID alone.
+- Current H2 coordinator behavior is process-safe: it records full server identities
+  (PID, creation time, command signature), checks a recorded port and the target
+  lease before terminal cancellation, and avoids status-polling lock starvation.
+  These are partial H2 safeguards, not a cross-build cancellation guarantee.
+- A new Codex/opencode/MCP host can read and reconcile an existing job. A vanished worker becomes `interrupted` only after PID plus creation-time/command evidence proves it is gone. A stale lease may be removed only when proven stale and owned by that job.
+- On Windows, transient sharing violations can occur while polling `.state.lock`; retain atomic replacement, fsync, exact lock-content validation, and bounded retry. Never replace a lock with an in-place write or delete a foreign lock.
 
 ## Key: standalone uses clientapi, not direct Model
 mph 1.3.1 `mph.Client(cores=...)` returns `model.java` as `com.comsol.clientapi.impl.ModelClient`:
@@ -124,7 +141,8 @@ Reproducing Au-Al₂O₃-Au MIM metasurface thermal emitter (Chen et al. *Int. J
 
 ### Long standalone sweep robustness
 - Prefer staged one-point solves for fragile wavelength sweeps: set `jm.param().set("wl", value)`, run `jm.study("std1").run()`, evaluate with `EvalGlobal`, append CSV immediately. This avoids COMSOL/mph outer-sweep evaluation surprises such as only seeing the last point.
-- Standalone `mph.Client` scripts may finish saving files but not exit because JVM/helper threads stay alive. After all outputs are flushed and saved, `os._exit(0)` is acceptable for long-running handoff scripts.
+- For production multi-point runs in a compatible same-host setup, prefer the H1 job worker above; retain direct scripts for controlled research drivers and diagnostics.
+- Standalone `mph.Client` scripts may finish saving files but not exit because JVM/helper threads stay alive. After all outputs are flushed and saved, `os._exit(0)` is acceptable for long-running handoff scripts. A standalone client with `client.port is None` is not remotely connected: call `client.clear()` if needed, but do not call `client.disconnect()`.
 
 ### Port failure root cause + solution (PDF docs p151, p179-181)
 - **Root cause**: Periodic port assumes **the domain adjacent to the port is a homogeneous isotropic medium** (WaveOpticsModuleUsersGuide.pdf p151). Metal patch (Drude negative ε) in the domain violates this assumption; even if port is in air domain it fails. Minimal test: dielectric patch → R=1.08 normal; metal patch → R=0 fails.
@@ -192,7 +210,15 @@ ltr.set('lth', str(t_au))
 ### Key API notes
 - `ewfd` default features: `wee1` (wave equation) / `pec1` (PEC) / `init1` (initial values) / `dcont1` (continuity).
 - Material permittivity uses **single string** (e.g. `'-972+283.5*i'` or Drude expression), not `[real,imag]` array (reports "needs 3x3 matrix").
-- Au Drude: `1-(1.37e16)^2/((2*pi*c_const/wl)*((2*pi*c_const/wl)+i*4.1e13))`, wp=1.37e16 rad/s, gamma=4.1e13 rad/s (*known trap*: use `c_const/wl` not `ewfd.freq`).
+- Au Drude sign is formulation-sensitive; never copy the imaginary sign without
+  a `Qh` passivity check. In the Sun 2025 **volumetric ewfd** model, passive loss
+  was verified with
+  `1-wp^2/(omega*(omega-i*gamma))` and Ge `(n-i*k)^2`. The opposite
+  `omega+i*gamma`, `(n+i*k)^2` signs gave `R>1`, negative `Atotal`,
+  `Qh_Au=-7.731e-3 W`, and `Qh_Ge=-2.162e-3 W` even on a 194,752-element mesh.
+  The older `+i*gamma` expression elsewhere in this guide belongs to its calibrated layered-BC
+  workflow and must not be assumed portable. In all cases use `c_const/wl`, not
+  a frozen or mismatched frequency control.
 - Box selector fails under clientapi, must pass domain numbers directly.
 - `m.evaluate([expr, 'wl'])` (list) gets multi-frequency sweep results, each row is [expr_value, wl_value]. Iterate inner indices with `inner=[i,...]` (0-indexed list).
 
@@ -299,6 +325,36 @@ For 3D periodic structures with expensive narrow features (high Q resonances), u
 - **Key property difference**: default `size` node uses `hmax`/`hmin` directly (no `active` suffix); custom `Size` (`sz1`) uses `hmaxactive`/`hminactive` suffixes.
 - For convergence: mesh shifts peak to longer λ (~0.75nm per step from 0.08→0.06→0.04*wl). Always re-find peak after mesh change.
 - 0.04*wl on 220k elements + 392k DOF needs ~48+ GB RAM — avoid global 0.04*wl for production sweeps. Use 0.06*wl production + 0.04*wl single-point sanity check.
+
+### Direct-solver memory gates (portable method)
+
+Direct-solver memory grows superlinearly with degrees of freedom, so nominal
+element-size ratios do not predict whether a solve fits in memory. Calibrate every
+new host, solver, element order, and geometry before production work.
+
+- Establish a known-safe baseline and record elements, DOF, peak process private
+  bytes, available physical-memory fraction, remaining commit fraction, solve
+  time, and disk I/O.
+- Use relative states rather than machine-specific GB values: green when at least
+  roughly 25% of physical RAM remains available; warning at 12.5-25%; red below
+  12.5%. Do not start another factorization in the red state.
+- Stop or cancel when available RAM approaches 5%, remaining virtual commit is
+  below about 10% of its limit, or sustained paging accompanies a collapsing
+  working set and loss of solver progress. Tune these fractions for the host's
+  reliability requirements.
+- Disk activity alone is not a paging diagnosis. Correlate available RAM,
+  remaining commit, process private bytes, working-set change, pagefile I/O, CPU
+  progress, and durable result timestamps.
+- Run a mesh-only preflight before a new refinement level. Set a configurable
+  element/DOF hard gate derived from the safe baseline and refuse the solve when
+  the gate is exceeded. Keep host-specific numbers in project/runtime memory, not
+  in this reusable skill.
+- Refine resonant or lossy domains first; keep surrounding air and noncritical
+  domains at the accepted coarser size. Release isolated solver processes between
+  points when memory retention is uncertain.
+- For a high-Q resonance, a fixed-wavelength amplitude change is not sufficient
+  evidence of mesh nonconvergence. Locate and bracket each mesh's own peak before
+  comparing peak wavelength, peak A, linewidth, or Q.
 
 ### Final-check addendum
 - In a verified In:CdO MIM run, focused fine sweeps moved one mid-density point back to the paper peak and confirmed another point's higher FEM global peak within tolerance. Use focused fine sweeps before calling a side peak physical or spurious.
@@ -499,7 +555,7 @@ ps.set("LinearPol", "S")  # or P, depending on rdir1 convention
 
 For staged angle sweeps, set `theta/phi` as model parameters before each one-wavelength solve. It is not necessary to use Wavelength-step auxiliary sweep for angle if the solve is staged. Keep `wl` as the wavelength parameter when material expressions use `wl`.
 
-Runtime reference from Zhou2025 local_060: one `(theta, wl)` solve point took about 10.7-14.1 s; a 28-30 point scan for one theta is roughly 5-6 min plus setup/save overhead.
+Runtime reference from Zhou2025 local_060: one `(theta, wl)` solve point took about 10.7-14.1 s; a 28-30 point scan for one theta is roughly 5-6 min plus setup/save overhead. This is mesh/model-specific: the 50,877-element `stage2_localmesh.mph` H1 gates took about 22.4-25.1 s per wavelength.
 
 ## Zhou 2025 2D nanopillar QBIC metasurface (verified workflow)
 Paper context: Zhou et al., Nano Letters 2025 QBIC thermal emitter with four Si/SiO2 nanopillars on Au. Use these notes for 2D periodic nanopillar/metasurface reproductions that need geometry perturbation, angle sweeps, and field-profile evidence.
@@ -525,117 +581,216 @@ Paper context: Zhou et al., Nano Letters 2025 QBIC thermal emitter with four Si/
 - H2 sweep should show `QBIC -> BIC -> QBIC`: high around `H2=0.32-0.34 um`, weak around `H2=0.36-0.38 um`, high again around `H2=0.42 um`.
 - Delta-y sweep should show weak response at `Dy=0` and strong response at `Dy=Py/2`.
 - Angle sweep in the reproduced rectangular-supercell model is angle-dependent: emissivity drops from about `0.924` at `theta=0 deg` to about `0.213` at `theta=60 deg`, with a blue shift of about `47 nm`; do not claim strong angle insensitivity without additional evidence.
-## Cross-project audit rules
+## Cross-project audit addendum (2026-07-11)
 
-### Verify physical polarization and angle path
+These rules were established while re-auditing the Sun 2024 flat-band emitter
+and the Zhou 2025 angle-insensitive QBIC emitter. They supersede project comments
+that inferred polarization, energy conservation, or Q only from feature labels or
+one internal normalization.
 
-- `PeriodicStructure.rdir1` does not make S/P labels self-explanatory. Verify the
-  incident field in a named homogeneous top-air selection, preferably off resonance.
-  Record RMS or median `abs(Ex)`, `abs(Ey)`, and `abs(Ez)`, entity IDs, and coordinate
-  range. Do not use resonator maxima or whole-model averages.
-- Require a comfortably dominant target/transverse ratio, for example `>=20`, before
-  a long scan. If it fails, repair the reference direction/port setup first.
-- A single `alpha1_inc` sweep is one momentum path. Before an angle map, test two
-  orthogonal in-plane directions and both S/P at sparse angles. Record evaluated
-  wavevectors and field components; match the paper's incidence plane and azimuth.
+### Verify the physical incident polarization, not the S/P label
 
-### Require physical power closure
+- `PeriodicStructure.rdir1` defines a reference direction, but the physical
+  meaning of `LinearPol=S/P` also depends on the incidence plane and angular path.
+  At normal incidence the label is especially easy to misinterpret.
+- Verify the incident field in a homogeneous top-air sampling region, preferably
+  at an off-resonance wavelength. Record median or RMS `abs(Ex)`, `abs(Ey)`, and
+  `abs(Ez)` there. Do not infer the incident polarization from field maxima inside
+  a resonator because the mode can rotate or mix components.
+- Sun 2024 diagnostic: with a y-directed `rdir1`, the archived `S`-label port run
+  was Ex-dominant in top air (`median abs(Ex)/abs(Ey)` about 65 at the peak and
+  about 125 off peak). Its `5.998 um` peak therefore did not represent the paper's
+  target y-polarized excitation.
+- A robust preflight solves both `S` and `P` at two or more wavelengths and writes
+  the top-air component ratios into the CSV. Accept a target linear polarization
+  only when its dominant/transverse component ratio is comfortably large (for
+  example at least 20 away from resonance).
 
-- `A_vol=int(Qh)/P_inc` and `A_csc=sigmaAbs/unit_cell_area` may agree because they
-  share one normalization. Agreement proves internal consistency, not energy closure.
-- For a passive periodic cell require `0<=R,T,A<=1` and
-  `abs(R+T+A-1)<=1e-3`, or a documented independently validated equivalent.
-- If a scattered-field architecture gives `A>1` or cannot provide independent R/T,
-  retain it only for field/mode-location diagnostics. Prefer a physically closed port
-  model plus independent RCWA for quantitative evidence.
+### Angle-insensitivity requires path and polarization audits
 
-### Bracket high-Q peaks and preserve wavelength controls
+- A single `alpha1_inc` sweep is only one in-plane momentum path. Before a long
+  angular map, run a four-way smoke matrix: two orthogonal in-plane directions
+  times `S/P`, at `theta=0/20/40 deg` or similarly sparse angles.
+- Record the evaluated in-plane wavevector components, the actual top-air E-field
+  components, and the port angle parameters. Match the paper's incidence plane,
+  TE/TM convention, and Gamma-to-high-symmetry path before comparing peak motion.
+- For an equivalent rectangular supercell of a hexagonal lattice, a large angle
+  discrepancy is not by itself proof that the rectangular cell is an approximation.
+  First check Bloch phase, azimuth, band folding, and the actual polarization.
 
-- Fully bracket both sides before reporting FWHM or Q. Lorentzian, Fano,
-  absolute-half, and half-prominence widths are not interchangeable; save the fit
-  method and residuals.
-- Compare each mesh at its own bracketed resonance. A fixed old-peak wavelength is a
-  diagnostic, not mesh convergence.
-- When dispersion uses global `wl`, record requested wavelength, evaluated `wl`, and
-  `c_const/ewfd.freq` in every row. Treat systematic disagreement as a hard gate.
+### Internal absorption agreement is not physical energy closure
 
-### Treat run provenance as part of the result
+- `A_vol=int(Qh)/P_inc` and `A_csc=sigmaAbs/unit_cell_area` can agree to machine
+  precision because they share the same scattered-field normalization. Their
+  agreement proves internal consistency only.
+- For a passive periodic cell, `A>1` is not emissivity and cannot be accepted as
+  energy conservation. Sun 2024's archived `A_vol=A_csc=1.717` is the canonical
+  failure example.
+- Physical closure requires total-field Poynting flux on planes inside the real
+  top/bottom media before the PML: derive `R` and `T`, compare `A_flux=1-R-T` with
+  volume loss, and require `0<=R,T,A<=1` plus `abs(R+T+A-1)<=1e-3` (or a justified
+  tighter/looser tolerance).
+- If a scattered-field architecture cannot pass this gate quickly, prefer a
+  correct-polarization PeriodicStructure port model plus independent RCWA rather
+  than reporting `A_csc` as emissivity.
 
-- Never append different geometry, material, physics, mesh, or normalization
-  configurations to one CSV. Give each configuration a stable `config_id` and use a
-  new file when it changes.
-- Record source model path/SHA-256, requested/evaluated wavelengths, polarization,
-  mesh expressions and element count, R/T/A/sum, validation, solve time, and error.
-  Add per-domain Qh and sampling-selection IDs when relevant.
+### High-Q linewidth and fit discipline
+
+- Fully bracket both sides of the resonance before reporting FWHM or Q. A fine
+  scan ending near the peak is not a Q measurement even when its step is small.
+- Match the paper's extraction method. Fano, Lorentzian, absolute-half, and
+  half-prominence widths are not interchangeable. Save fit residuals and the
+  fitted linewidth, and compare every mesh at its own bracketed peak.
+- Adding material loss cannot increase total Q. If a simulated Q is already below
+  the paper, do not claim that importing a positive loss term will fix it; audit
+  geometry, radiation coupling, mesh, mode assignment, and fit definition first.
+
+### Record both wavelength controls
+
+- Whenever material dispersion uses a global `wl`, write both evaluated `wl` and
+  `c_const/ewfd.freq` into every result row, in addition to the requested value.
+- A small but systematic difference between the parameter wavelength and the
+  solved-frequency wavelength is a classification gate, not a rounding detail.
+  Preserve both columns and diagnose the study/parameter definitions before final
+  comparison with a paper target.
+
+### Treat run provenance as part of the numerical result
+
+- Never append rows from different geometry, material, physics, mesh, or
+  normalization configurations to one CSV. Give each configuration a stable
+  `config_id` and use a new output file when it changes.
+- Record the source model path and SHA-256, requested wavelength, evaluated global
+  `wl`, `c_const/ewfd.freq`, polarization, mesh expressions, element count,
+  R/T/A/sum, validation status, solve time, and error in every row. Add per-domain
+  `Qh` and sampling-selection IDs when relevant.
 - A filename or report label is not mesh evidence. Rebuild the mesh in the driver,
-  query feature values and element count, then persist them before solving.
-- Resume only `status=ok` rows whose `config_id` matches. Retry errors. Solve one
-  wavelength at a time; append, flush, and `fsync` immediately; checkpoint the model.
+  query its feature values and element count, and persist them before solving.
+- Resume only completed rows whose `config_id` matches. Retry errors; never let an
+  old row silently satisfy a new configuration.
+- Use one wavelength per solve, append + flush + `fsync` immediately, and checkpoint
+  the working model. This contract makes long runs auditable and resumable.
 
-### Use a common-baseline bridge for cross-method offsets
+### Use a common-baseline bridge before explaining cross-method peak offsets
 
-1. Audit FEM and independent-solver inputs offline: geometry bounding boxes, full
-   inclusion dimensions/centers, material expressions and loss signs, selections,
-   layer terminations, periodic vectors, incidence, wavelength controls, mesh, and
-   study features.
-2. If any nominal input differs, create a named immutable common working baseline.
-3. Run a small bridge matrix around every competing candidate before a broad scan;
-   record actual polarization and physical closure.
-4. Search every local maximum, then refine and bracket each branch.
-5. Rebuild explicitly named meshes and locate each mesh's own peak.
-6. Explain a FEM/RCWA peak offset only after the common-baseline gate passes.
+1. Audit FEM models and the independent solver input offline. Compare exact geometry
+   bounding boxes, full inclusion dimensions and centers, material expressions and
+   loss signs, domain selections, layer terminations, periodic vectors, incidence,
+   wavelength controls, mesh, and study features.
+2. Create a named immutable common working baseline if any difference exists. Do not
+   compare spectra from unequal nominal models.
+3. Run a small bridge matrix at wavelengths bracketing every competing candidate
+   before a broad scan. Record physical polarization and power closure at each point.
+4. Search all local maxima. Refine and bracket each branch; do not keep only the
+   global maximum.
+5. For convergence, rebuild each explicitly named mesh and locate that mesh's own
+   peak. A fixed-wavelength amplitude table is a diagnostic, not convergence proof.
+6. If a physical port model and RCWA disagree while a scattered-field model gives
+   `A>1`, retain the scattered model only for field/mode-location diagnostics. Do
+   not use its internal absorption normalization to arbitrate physical emissivity.
+
+### Verify incident polarization in homogeneous top air
+
+- Sample RMS or median `abs(Ex)`, `abs(Ey)`, and `abs(Ez)` in a named homogeneous
+  top-air selection away from the resonator and port boundary. Persist its entity IDs
+  and coordinate range.
+- Do not use whole-model averages, resonator maxima, or S/P labels to establish the
+  incident polarization. Resonant fields mix components.
+- Use a comfortably dominant off-resonance ratio (for example target/transverse
+  `>=20`) as a preflight gate. If it fails, repair the port/reference-direction
+  setup before any long spectrum.
 
 ### Hand visual mode gates to an image-capable agent
 
 - A text-only solver agent may generate identical-grid on/off-resonance E/H arrays
   and PNGs, shared color limits, slice coordinates, and quantitative component/on-off
   ratios. It must not infer visual symmetry, localization, magnetic-dipole character,
-  overlay quality, or mode identity from unseen images.
-- Stop at that gate and hand exact paths, slice definitions, color limits, and the
-  numerical summary to Codex or another image-capable agent. Require a written visual
-  assessment before assigning a mode or promoting report figures.
+  overlay quality, or mode identity from images it cannot inspect.
+- Stop at that gate and hand the exact PNG/array paths, slice definitions, color
+  limits, and numerical summary to Codex or another image-capable agent. Require a
+  written visual assessment before assigning a mode or promoting figures to a report.
 
 ### Solver ownership and audit order
 
-- Use one heavy solver owner. Do not run a large standalone COMSOL solve beside a
-  high-order MATLAB RCWA job.
-- Resolve failures in this order: wavelength/material synchronization, physical
-  polarization, power closure, bracket/convergence, mode identity, then secondary
-  figures or cosmetic tuning.
+- Use one heavy solver owner at a time. Do not start another standalone COMSOL
+  client, or a high-order MATLAB RCWA job, while a large solve is active.
+- Resolve correctness failures in this order: wavelength/material synchronization,
+  physical polarization, power closure, bracket/convergence, mode identity, then
+  secondary figures or cosmetic wavelength tuning.
 
-## Oblique PeriodicStructure cells (verified 2026-07-12)
+### Zhou 2025 mesh035 work — two-stage convergence (2026-07-12 verified)
 
-### Diagnose `src2dst_fpc1_ps1` before changing mesh controls
+Use a two-stage scan at each mesh's own peak:
+1. **Coarse** ±15 nm at 1 nm to bracket.
+2. **Fine** ±8 nm around coarse peak at 0.25 nm.
+Skip duplicates between stages. Verify the coarse peak is interior (not within 2
+points of scan boundary) before refinement.
 
-- Prove that each periodic source boundary partition is congruent with its destination after the intended lattice translation. Floquet phase changes field phase; it does not repair a geometrically wrong source/destination map.
-- The failed Sun2025 rectangular cell put the Ge face at `x=1.5625 um` on `y=0` and `x=1.7775 um` on `y=b`. Those faces differ by `delta=0.215 um` but the rectangular y translation has no x component, so CopyFace and the solver could not map them.
-- FreeTet-only FormUnion and FormAssembly both failed in that model because the geometry was not translation-congruent. Do not infer that the `fin` action alone is the root cause.
+Element count scaling: local hmax `0.06*wl` (51k) → `0.035*wl` (87k) = 1.7x.
+Solve time scales ~N^1.4 with direct solver.
 
-### Build the real centered oblique cell
+Predeclared convergence gates (Zhou 2025 verified, baseline 51k vs candidate 87k):
+- fitted-center shift: ≤1.0 nm ✅ (actual 0.27 nm)
+- asymmetric-fit Q change: ≤5% ✅ (actual 0.48%)
+- peak-A change: ≤0.02 ✅ (actual 0.0017)
 
-For lattice vectors `a1=(a,0)` and `a2=(delta,b)`:
+### Mesh035 Q scan summary
+- 79 unique points, ~57 min total. Closure = 1.0 on every point.
+- Asymmetric-fit Q = 425.64 (CI 423.0-428.3), center 4.25611 um.
+- Paper Q=650 not reproduced. The gap is material-related (constant eps vs
+  dispersive aSi/SiO2).
 
-1. Use parallelogram vertices `(-delta/2,-b/2)`, `(a-delta/2,-b/2)`, `(a+delta/2,b/2)`, `(delta/2,b/2)` for every full layer.
-2. Put the abrupt ridge step inside the cell at `y=0`: lower rectangle center `a/2-delta` on `[-b/2,0]`, upper rectangle center `a/2` on `[0,b/2]`. This reproduces periodically shifted rectangular waveguide segments, not a continuous diagonal strip.
-3. Subtract the retained stepped Ge extrusion from the upper-air prism so the lateral volume around Ge is filled.
-4. Classify the slanted `a1` faces by `x=(delta/b)*y` and `x=a+(delta/b)*y`; classify the `a2` faces by `y=+/-b/2`. Require equal group counts.
-5. Mesh `FreeTri(a1 source) -> CopyFace(a1) -> FreeTri(a2 source) -> CopyFace(a2) -> FreeTet`.
-
-`comp.mesh().create("mesh1")` already contains default feature `size`; reuse `mesh.feature().get("size")` instead of creating the same tag.
-
-Verified case: 6 domains, 35 boundaries, `a1 4->4`, `a2 5->5`, 8,852 elements. A circular all-air solve at `5.294 um` gave `R=1.32309047089e-9`, `T=0.999999998677`, `A=-1.19e-18`, closure `0.9999999999999957`.
-
-### Use the correct Wave Optics interface
+### Air-reference polarization calibration (Zhou 2025)
+Total field at the port boundary includes reflection and cannot pass a ≥20 gate.
+Workaround: load the immutable source, remove all materials in memory, assign
+lossless air to all domains. With all-air there is no reflection (R≤1e-9). The
+polarization ratio then reaches 60-96x, cleanly passing the gate.
 
 ```python
-ewfd = comp.physics().create('ewfd', 'ElectromagneticWavesFrequencyDomain', '3')
-ps = ewfd.feature().create('ps1', 'PeriodicStructure', 3)
-ps.set('Polarization', 'CircularPol')
-ps.feature('rdir1').selection().set(ji([top_edge_parallel_to_a1]))
-ps.runCommand('addDiffractionOrders')
+model = client.load("source.mph")
+jm = model.java; comp = jm.component("comp1")
+ps1 = comp.physics().get("ewfd").feature().get("ps1")
+wee = ps1.feature().get("wee1")
+wee.set("DisplacementFieldModel", "RelativePermittivity")
+wee.set("mur_mat", "userdef"); wee.set("mur", "1")
+wee.set("sigma_mat", "userdef"); wee.set("sigma", "0")
 ```
 
-With this interface, `LinearPol` accepts `S/P/Mixed`, total-power variables use the `ewfd` prefix, and `ewfd.Rtotal/Ttotal/Atotal` evaluate with `EvalGlobal`. Seeing `TE/TM/Mixed`, namespace `emw`, or missing `ewfd.Eampl*` after `addDiffractionOrders` means the wrong physics interface was created.
+`ewfd.Ebx/Eby/Ebz` exist in the API but evaluate to identically zero in the
+full-field PeriodicStructure formulation. Do not attempt to extract the incident
+field this way.
+
+### Equivalent-cell fresh build pattern
+For supercell vs primitive cell comparison, build the smaller cell from scratch
+with identical materials/physics/mesh. Match mesh density per domain type, not
+overall element count. For Zhou 2025: 2-pillar/44k-elem cell matched 4-pillar/87k
+supercell to within 0.0017 A at the peak, and angle-dependence agreed to ≤2%.
+
+### `comsol_session_reset` trap
+After `session_reset`, `comsol_start` fails with "Only one client can be
+instantiated per Python session" because the JVM is still loaded. Kill the MCP
+server process (`python -m src.server`) and let the host agent restart it.
+Standalone scripts in separate Python processes are never affected.
+
+## RETICOLO: profile order and Au oblique failure
+
+### RETICOLO profile = TOP→BOTTOM (incident first)
+```matlab
+profile = {[0, thick1, thick2, ..., 0], [top_tex, tex1, tex2, ..., sub_tex]};
+```
+Sun 2024 (air → Ge → Al2O3 → Au → air):
+```matlab
+profile = {[0, H_GE, T_AL2O3, T_AU, 0], [1, 4, 3, 2, 1]};
+```
+**The preflight script had Au first (wrong)**. The convergence script (correct)
+was written independently. Always verify layer order from incident side.
+
+### RETICOLO + Au at any θ>0: total numerical failure
+- Normal incidence: fine (Au n~2.3+39.4i handled correctly).
+- theta > 0: R=0, T=0, A=1 for every wavelength.
+- Root cause: large refractive-index mismatch at metal/dielectric interface
+  violates standard Fourier factorization at oblique incidence.
+- No workaround in RETICOLO V7. Use COMSOL PeriodicStructure angle sweep
+  or an RCWA tool with proper Li factorization.
 
 ## Debugging tips
 - Probe clientapi methods/overloads: `for mth in obj.getClass().getMethods(): if str(mth.getName())=='create': ...` (JPype reflection, note `str(p.getName())` to avoid Java String errors).
@@ -645,3 +800,101 @@ With this interface, `LinearPol` accepts `S/P/Mixed`, total-power variables use 
 - Comparison test for material effectiveness: change eps_r and check if We changes proportionally (if not, fsp1 dominates, need to add ccn1).
 - After standalone script disconnects, cannot start new mph.Client in same Python process ("Only one client can be instantiated per Python session") — must **restart host agent/CLI**. Recommend combining all probe/inspect operations into one script run.
 - **After modifying MCP server `src/tools/`, must restart host agent/CLI** (MCP is subprocess, no hot-reload).
+
+## PeriodicStructure Mesh — Proven Patterns
+
+### Source/Destination mesh incompatible error (fpc1_ps1)
+The classic error `源和目标网格不兼容 — 变量 comp1.emw.src2dst_fpc1_ps1` means the Floquet periodic condition cannot map source→destination meshes. This occurs with FreeTet-only meshing on multi-domain geometries.
+
+**COMSOL requires identical meshes on periodic face pairs.** Three approaches:
+
+1. **FreeTri + CopyFace + FreeTet** (proven working in Sun 2024 models):
+   ```python
+   # x-periodic: FreeTri on x-min, CopyFace to x-max
+   ft_x = mesh.feature().create('ft_x', 'FreeTri')
+   ft_x.selection().set(ji([1, 4, 7, 10]))  # x-min faces per domain
+   cp_x = mesh.feature().create('cp_x', 'CopyFace')
+   cp_x.selection('source').set(ji([1, 4, 7, 10]))
+   cp_x.selection('destination').set(ji([25, 26, 27, 28]))  # x-max faces
+   # y-periodic: same pattern
+   ft_y = mesh.feature().create('ft_y', 'FreeTri')
+   ft_y.selection().set(ji([2, 5, 8, 11, 19]))
+   cp_y = mesh.feature().create('cp_y', 'CopyFace')
+   cp_y.selection('source').set(ji([2, 5, 8, 11, 19]))
+   cp_y.selection('destination').set(ji([14, 15, 16, 17, 22]))
+   # z-periodic (ports)
+   ft_z = mesh.feature().create('ft_z', 'FreeTri')
+   ft_z.selection().set(ji([bot_bnd]))
+   cp_z = mesh.feature().create('cp_z', 'CopyFace')
+   cp_z.selection('source').set(ji([bot_bnd]))
+   cp_z.selection('destination').set(ji([top_bnd]))
+   ftet = mesh.feature().create('ftet1', 'FreeTet')
+   mesh.run()
+   ```
+   Note: CopyFace `.selection('source')`/`.selection('destination')` use `.set(ji([...]))` WITHOUT `.geom('geom1', 2)` — the geometry context is inherited from FreeTri.
+
+2. **FormAssembly + identity pairs** (`geom.run('fin')`) creates auto identity pairs, but FreeTet alone still gives the mesh incompatibility error. CopyFace on FormAssembly may fail with `无法复制到任何目标实体` if boundary numbers are wrong or pairs don't map.
+
+3. **FormUnion + FreeTet only** — failed in the tested multi-domain PeriodicStructure models; do not treat FormUnion itself as the cause until periodic boundary partitions have also been proved translation-congruent.
+
+### Boundary probing for periodic faces
+Use MCP `geometry_probe_domains` which returns `side_pairs`:
+```json
+"side_pairs": {
+    "x_src": [1,4,7,10], "x_dst": [25,26,27,28],
+    "y_src": [2,5,8,11,19], "y_dst": [14,15,16,17,22],
+    "bottom": [3], "top": [13]
+}
+```
+Note: boundary numbers depend on number of domains and whether FormUnion or FormAssembly. Always probe the actual geometry.
+
+### CopyFace API pitfalls
+- `.geom('geom1', 2)` NOT needed for CopyFace selection — unlike the Programming Reference Manual example, the simpler `.set(ji([...]))` works
+- Multiple source/destination faces in a single CopyFace works when they form matching pairs across periodic faces
+- CopyFace "无法复制到任何目标实体" means the identity pair mapping doesn't exist between the selected source and destination boundaries
+- `comp.mesh().create("mesh1")` already contains the default `size` feature. Reuse `mesh.feature().get("size")`; creating another feature with tag `size` raises "object with the given name already exists".
+
+## Study Types for Wave Optics Module
+- Wavelength Domain: study type = `"Wavelength"` (NOT `"FrequencyDomain"`)
+- MCP `study_create` supports `"Wavelength"` directly
+- Study step property: `plist` = wavelength list, `punit` = `"m"`
+- Java API: `std.create(JString('wl_step'), JString('Wavelength'))`
+- FrequencyDomain type (`"FrequencyDomain"`) gives "在这个情景中不能创建本操作" (cannot create this operation in this context) for Wave Optics models
+
+## Geometry Build Patterns
+
+### Oblique primitive cell (Sun 2025)
+For metasurfaces with oblique lattice vectors `a1=(a,0)`, `a2=(delta,b)`:
+1. Do not replace the oblique primitive cell with a rectangular box when a material segment changes x position across the y pair. Floquet phase changes the field phase, not the geometry mapping. The old rectangular Sun2025 model had Ge-face centers `1.5625 um` and `1.7775 um` on `y=0/b`; CopyFace could not map them and the solver failed at `src2dst_fpc1_ps1`.
+2. Use a centered parallelogram with vertices `(-delta/2,-b/2)`, `(a-delta/2,-b/2)`, `(a+delta/2,b/2)`, `(delta/2,b/2)`. Its translations are exactly `a1` and `a2`.
+3. Put the abrupt ridge step inside the cell at `y=0`. Use a lower rectangle centered at `a/2-delta` over `[-b/2,0]` and an upper rectangle centered at `a/2` over `[0,b/2]`. This matches the paper's periodically shifted rectangular waveguide segments and makes the bottom Ge partition map to the top partition under `+a2`.
+4. Extrude every full layer from the same parallelogram footprint. Create surrounding air by subtracting the retained stepped Ge extrusion from the upper-air prism; do not leave the lateral volume around Ge empty.
+5. Classify the slanted `a1` faces by `x=(delta/b)*y` and `x=a+(delta/b)*y`, and the `a2` faces by `y=+/-b/2`. Prove equal source/destination group counts before meshing.
+6. Mesh in the order `FreeTri(source a1) -> CopyFace(a1) -> FreeTri(source a2) -> CopyFace(a2) -> FreeTet`.
+
+Verified COMSOL 6.4/MPh 1.3.1 smoke (2026-07-12): 6 domains, 35 boundaries, `a1 4->4`, `a2 5->5`, 8,852 elements. Circular all-air solve at `5.294 um` gave `R=1.32309047089e-9`, `T=0.999999998677`, `A=-1.19e-18`, closure `0.9999999999999957`; the original `src2dst_fpc1_ps1` error was eliminated.
+
+Minimal layer footprint:
+   ```python
+   cell_x = [-delta/2, a-delta/2, a+delta/2, delta/2]
+   cell_y = [-b/2, -b/2, b/2, b/2]
+   poly.set('x', ' '.join(map(str, cell_x)))
+   poly.set('y', ' '.join(map(str, cell_y)))
+   ```
+
+Use the real Wave Optics interface and namespace:
+
+```python
+ewfd = comp.physics().create('ewfd', 'ElectromagneticWavesFrequencyDomain', '3')
+ps = ewfd.feature().create('ps1', 'PeriodicStructure', 3)
+ps.set('Polarization', 'CircularPol')
+ps.feature('rdir1').selection().set(ji([top_edge_parallel_to_a1]))
+ps.runCommand('addDiffractionOrders')
+```
+
+With the correct interface, `LinearPol` accepts `S/P/Mixed` and total-power variables use the `ewfd` prefix. Seeing `TE/TM/Mixed`, an `emw` prefix, or missing `ewfd.Eampl*` after `addDiffractionOrders` is evidence that the wrong physics interface was created. Evaluate `ewfd.Rtotal/Ttotal/Atotal` with `EvalGlobal`.
+
+### File locking
+- MCP session locks .mph files it has loaded. Cannot overwrite from another process.
+- Use unique filenames when running standalone scripts concurrent with MCP session.
+- After `session_reset`, the old client may still hold JVM ("Only one client per Python session") — restart the host process. Standalone scripts in separate Python processes are unaffected.
