@@ -6,7 +6,7 @@ This repository ships an **agent skill** at:
 skills/comsol-64-metasurface/SKILL.md
 ```
 
-It is a focused instruction document (with YAML frontmatter) that teaches coding agents how to drive **COMSOL Multiphysics 6.4+** through the [comsol MCP server](https://github.com/garbage-enzyme/COMSOL_Multiphysics_MCP_6_4_Calibrated) with MPh 1.3.1 standalone / `clientapi`, and how to write or fix code in `src/tools/` when the clientapi wrapper's API differs from the direct `com.comsol.model.Model` API. Also covers geometry boundary probing (getUpDown/faceX/faceNormal), fin Form Assembly (imprint=True, createpairs=False), Wave Optics ewfd periodic metasurface setup with MIM Drude LayeredTransition BC.
+It is a focused instruction document (with YAML frontmatter) that teaches coding agents how to drive **COMSOL Multiphysics 6.4+** through the [comsol MCP server](https://github.com/garbage-enzyme/COMSOL_Multiphysics_MCP_6_4_Calibrated) with MPh 1.3.1 standalone / `clientapi`, and how to write or fix code in `src/tools/` when the clientapi wrapper's API differs from the direct `com.comsol.model.Model` API. It also covers runtime MCP capability/ownership gates, geometry probing, the exact Wave Optics physics constructor, oblique primitive cells, translation-congruent periodic meshes, and MIM Drude boundary workflows.
 
 ## When to read it
 
@@ -22,7 +22,7 @@ The skill's frontmatter `description` is the matching signal for agents that sup
 
 Under `mph.Client(cores=...)` (MPh 1.3+ standalone), `model.java` returns `com.comsol.clientapi.impl.ModelClient` — a wrapper whose method overloads differ from the direct `com.comsol.model.Model` the upstream MCP code was written against. The skill documents every mismatch found + fixed in the companion fork, plus 6.3/6.4-specific traps (Electrostatics `fsp1` FreeSpace ignoring material ε_r, Block boundary numbering, `Terminal` V0 unreliable, `(1[V])^2` expression syntax, missing `m.study()`, `selection().entities()`, `geom.getUpDown()` no-arg form, fin FormAssembly via `action='assembly'+imprint=True`).
 
-Verified end-to-end: parallel-plate capacitor **C = 1.8593794420 pF** vs theory 1.8593794407 pF (err 7 × 10⁻¹⁰ pF); MIM paper baseline (Chen et al. 2023) R profile matches Drude-continuous-Au prediction across 1–10 µm.
+Verified end-to-end: parallel-plate capacitor **C = 1.8593794420 pF** vs theory 1.8593794407 pF (err 7 × 10⁻¹⁰ pF); MIM paper baseline R matches Drude continuous Au across 1–10 µm; and a 2026-07-12 oblique CircularPol all-air cell solved with `R=1.32e-9`, `T=0.999999998677`, closure 1 after eliminating `src2dst_fpc1_ps1`.
 
 ## Companion code
 

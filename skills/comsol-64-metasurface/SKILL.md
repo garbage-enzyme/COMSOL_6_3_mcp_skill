@@ -1,6 +1,6 @@
 ---
 name: comsol-64-metasurface
-description: COMSOL Multiphysics 6.4+ with MPh 1.3.1 standalone (clientapi) operations guide. Use when driving COMSOL through mph.Client or the comsol MCP server, writing/fixing COMSOL_Multiphysics_MCP tools, or auditing periodic metasurface FEM results. Covers clientapi traps, geometry/boundary probing, physics and study setup, periodic ports/manual Floquet/PML, wavelength-dependent materials, provenance-safe staged sweeps, power closure, polarization verification, mesh convergence, and FEM/RCWA bridge diagnostics.
+description: COMSOL Multiphysics 6.4+ with MPh 1.3.1 standalone (clientapi) operations guide. Use when driving COMSOL through mph.Client or the comsol MCP server, writing/fixing COMSOL_Multiphysics_MCP tools, or auditing periodic metasurface FEM results. Covers runtime capability/ownership checks, clientapi traps, geometry probing, correct Wave Optics interface creation, oblique periodic cells, FreeTri/CopyFace meshes, periodic ports/manual Floquet/PML, dispersive materials, staged sweeps, power closure, polarization, and convergence.
 ---
 
 # COMSOL 6.4+ Operations Guide (MPh standalone / clientapi)
@@ -14,11 +14,18 @@ How to drive COMSOL 6.4+ via the comsol MCP server, and clientapi pitfalls you m
 - Prerequisite: COMSOL must be started first. `comsol_start` first-call timeout is normal; use `comsol_status` to confirm.
 - **After modifying `src/tools/` source, must restart the host agent/CLI** (MCP server is a subprocess, no hot-reload).
 
+### Current MCP capability gate (verified 2026-07-12)
+
+- Call `capabilities` and `solver_status` before solver work. The calibrated fork's default `full` profile is a 98-tool backward-compatibility surface; its `wave_optics` profile is explicitly experimental, while ownership, model, geometry, mesh, study, results transport, staged CSV, and durable-job infrastructure are verified.
+- Treat runtime tool discovery as authoritative instead of embedding an old tool count in automation. Profile changes require an MCP-host restart.
+- `comsol_start` is nonblocking. Poll `comsol_status`; never call start again while `starting=true`.
+
 ## Key: standalone uses clientapi, not direct Model
 mph 1.3.1 `mph.Client(cores=...)` returns `model.java` as `com.comsol.clientapi.impl.ModelClient`:
 - `mj = m.java` (property, **do not call**); `mj.physics().get('ewfd')` etc.
 - `component().create(tag, True)` — no `(str,bool,int)` overload. Space dimension is determined by `geom().create(tag, sdim)`.
 - `physics().create(tag, type, sdim)` — third parameter is **String** (e.g. `"3"`), not int! Get sdim via `comp.geom(tag).getSDim()` → `str()`.
+- For Wave Optics frequency domain use exactly `comp.physics().create("ewfd", "ElectromagneticWavesFrequencyDomain", "3")`. Do not use `("ElectromagneticWaves", "FrequencyDomain")`: the third argument is spatial dimension, not study type. That wrong call creates an `emw` namespace with TE/TM enums; `PeriodicStructure.addDiffractionOrders` then references missing `ewfd.Eampl*` variables.
 - `feature().create(tag, type, edim)` — third parameter is **int** (boundary dimension, e.g. 2). Different from physics String sdim.
 - `*.get(i)` int indexing not supported — use `tags()` to iterate: `for t in list.tags(): obj = list.get(t)`.
 - `len(geom.feature())` not supported — use `geom.feature().size()`.
@@ -595,6 +602,40 @@ Paper context: Zhou et al., Nano Letters 2025 QBIC thermal emitter with four Si/
 - Resolve failures in this order: wavelength/material synchronization, physical
   polarization, power closure, bracket/convergence, mode identity, then secondary
   figures or cosmetic tuning.
+
+## Oblique PeriodicStructure cells (verified 2026-07-12)
+
+### Diagnose `src2dst_fpc1_ps1` before changing mesh controls
+
+- Prove that each periodic source boundary partition is congruent with its destination after the intended lattice translation. Floquet phase changes field phase; it does not repair a geometrically wrong source/destination map.
+- The failed Sun2025 rectangular cell put the Ge face at `x=1.5625 um` on `y=0` and `x=1.7775 um` on `y=b`. Those faces differ by `delta=0.215 um` but the rectangular y translation has no x component, so CopyFace and the solver could not map them.
+- FreeTet-only FormUnion and FormAssembly both failed in that model because the geometry was not translation-congruent. Do not infer that the `fin` action alone is the root cause.
+
+### Build the real centered oblique cell
+
+For lattice vectors `a1=(a,0)` and `a2=(delta,b)`:
+
+1. Use parallelogram vertices `(-delta/2,-b/2)`, `(a-delta/2,-b/2)`, `(a+delta/2,b/2)`, `(delta/2,b/2)` for every full layer.
+2. Put the abrupt ridge step inside the cell at `y=0`: lower rectangle center `a/2-delta` on `[-b/2,0]`, upper rectangle center `a/2` on `[0,b/2]`. This reproduces periodically shifted rectangular waveguide segments, not a continuous diagonal strip.
+3. Subtract the retained stepped Ge extrusion from the upper-air prism so the lateral volume around Ge is filled.
+4. Classify the slanted `a1` faces by `x=(delta/b)*y` and `x=a+(delta/b)*y`; classify the `a2` faces by `y=+/-b/2`. Require equal group counts.
+5. Mesh `FreeTri(a1 source) -> CopyFace(a1) -> FreeTri(a2 source) -> CopyFace(a2) -> FreeTet`.
+
+`comp.mesh().create("mesh1")` already contains default feature `size`; reuse `mesh.feature().get("size")` instead of creating the same tag.
+
+Verified case: 6 domains, 35 boundaries, `a1 4->4`, `a2 5->5`, 8,852 elements. A circular all-air solve at `5.294 um` gave `R=1.32309047089e-9`, `T=0.999999998677`, `A=-1.19e-18`, closure `0.9999999999999957`.
+
+### Use the correct Wave Optics interface
+
+```python
+ewfd = comp.physics().create('ewfd', 'ElectromagneticWavesFrequencyDomain', '3')
+ps = ewfd.feature().create('ps1', 'PeriodicStructure', 3)
+ps.set('Polarization', 'CircularPol')
+ps.feature('rdir1').selection().set(ji([top_edge_parallel_to_a1]))
+ps.runCommand('addDiffractionOrders')
+```
+
+With this interface, `LinearPol` accepts `S/P/Mixed`, total-power variables use the `ewfd` prefix, and `ewfd.Rtotal/Ttotal/Atotal` evaluate with `EvalGlobal`. Seeing `TE/TM/Mixed`, namespace `emw`, or missing `ewfd.Eampl*` after `addDiffractionOrders` means the wrong physics interface was created.
 
 ## Debugging tips
 - Probe clientapi methods/overloads: `for mth in obj.getClass().getMethods(): if str(mth.getName())=='create': ...` (JPype reflection, note `str(p.getName())` to avoid Java String errors).
