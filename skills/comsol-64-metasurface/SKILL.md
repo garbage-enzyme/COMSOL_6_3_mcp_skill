@@ -1,6 +1,6 @@
 ---
 name: comsol-64-metasurface
-description: COMSOL Multiphysics 6.4+ and MPh 1.3.1 standalone/clientapi operations for MCP development, periodic Wave Optics and metasurface FEM, durable staged solves and bounded validation matrices, solver-independent FEM/RCWA reproduction planning, evidence validation, and production hardening. Use when driving COMSOL through an MCP server or mph.Client, choosing whether COMSOL or RCWA is sufficient for a periodic-scattering reproduction, writing or reviewing COMSOL MCP tools, debugging clientapi/periodic-mesh/port/material/study failures, running resumable sweeps or small durable evidence matrices, or auditing polarization, passivity, power closure, wavelength synchronization, mesh convergence, provenance, resource admission, and solver ownership.
+description: COMSOL Multiphysics 6.4+ and MPh 1.3.1 standalone/clientapi operations for MCP development, periodic Wave Optics and metasurface FEM, durable staged solves and bounded validation matrices, evidence validation, and production hardening. Use when driving COMSOL through an MCP server or mph.Client, writing or reviewing COMSOL MCP tools, debugging clientapi/periodic-mesh/port/material/study failures, running resumable sweeps or small durable evidence matrices, or auditing polarization, passivity, power closure, wavelength synchronization, mesh convergence, provenance, resource admission, and solver ownership.
 ---
 
 # COMSOL 6.4+ operations
@@ -28,6 +28,9 @@ Claude Code, Codex CLI, and opencode.
 8. Keep responses, journals, queues, retries, subprocesses, and artifact sizes
    bounded. Fail closed when process identity, cleanup, telemetry, or rollback
    evidence is uncertain.
+9. Keep research scope, publication standards, and project priorities
+   caller-owned. Describe capabilities and evidence contracts rather than a
+   default project strategy.
 
 ## Reference router
 
@@ -41,7 +44,7 @@ Read each selected file completely before acting.
 | Solver ownership, durable jobs/validation matrices, cancellation, Windows load stability, resource telemetry/admission | [durable-runtime.md](references/durable-runtime.md) |
 | R/T/A, flux closure, polarization evidence, wavelength sync, provenance, convergence, fields | [validation-evidence.md](references/validation-evidence.md) |
 | MIM, gratings, nanopillars, parameter scans, field export, common modeling recipes | [workflow-recipes.md](references/workflow-recipes.md) |
-| MCP profiles, typed mutations, schemas, deployment identity, packaging, restart/release gates | [mcp-development.md](references/mcp-development.md) |
+| MCP profiles, public recommended-skill scope, typed mutations, schemas, deployment identity, packaging, restart/release gates | [mcp-development.md](references/mcp-development.md) |
 | Error signatures and the smallest safe diagnostic | [troubleshooting.md](references/troubleshooting.md) |
 
 For a task spanning several areas, read only their union. Examples:

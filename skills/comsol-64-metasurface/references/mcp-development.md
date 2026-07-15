@@ -4,6 +4,7 @@
 
 - Capability profiles
 - Public schema discipline
+- Recommended-skill scope boundary
 - Typed derived-model mutations
 - Solver-free isolation
 - Deployment identity
@@ -50,6 +51,18 @@ For every public tool:
 
 Keep raw evidence separate from caller policy. A tool should not reinterpret old
 results when a new policy is introduced.
+
+## Recommended-skill scope boundary
+
+A public recommended skill for an MCP server should document capability
+discovery, safe invocation, evidence contracts, limitations, and release gates.
+Keep project prioritization, time budgets, figure selection, publication
+standards, and task-specific stopping decisions in caller or task policy.
+
+Do not convert one user's reproduction scope, resource constraint, or preferred
+workflow into a default scientific strategy for every user. Keep examples
+generic and sanitized, and describe what evidence a capability can produce
+without deciding which deliverables another project may omit.
 
 ## Typed derived-model mutations
 
