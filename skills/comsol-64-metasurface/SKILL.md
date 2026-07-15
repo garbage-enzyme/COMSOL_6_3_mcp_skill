@@ -1,6 +1,6 @@
 ---
 name: comsol-64-metasurface
-description: COMSOL Multiphysics 6.4+ and MPh 1.3.1 standalone/clientapi operations for MCP development, periodic Wave Optics and metasurface FEM, durable staged solves, evidence validation, and production hardening. Use when driving COMSOL through an MCP server or mph.Client, writing or reviewing COMSOL MCP tools, debugging clientapi/periodic-mesh/port/material/study failures, running resumable sweeps, or auditing polarization, passivity, power closure, wavelength synchronization, mesh convergence, provenance, resource admission, and solver ownership.
+description: COMSOL Multiphysics 6.4+ and MPh 1.3.1 standalone/clientapi operations for MCP development, periodic Wave Optics and metasurface FEM, durable staged solves and bounded validation matrices, evidence validation, and production hardening. Use when driving COMSOL through an MCP server or mph.Client, writing or reviewing COMSOL MCP tools, debugging clientapi/periodic-mesh/port/material/study failures, running resumable sweeps or small durable evidence matrices, or auditing polarization, passivity, power closure, wavelength synchronization, mesh convergence, provenance, resource admission, and solver ownership.
 ---
 
 # COMSOL 6.4+ operations
@@ -38,7 +38,7 @@ Read each selected file completely before acting.
 | `ModelClient` overloads, components, geometry probing, electrostatics, heat transfer, study/result basics | [clientapi-core.md](references/clientapi-core.md) |
 | `PeriodicStructure`, `rdir1`, incidence angles, polarization, periodic mesh, oblique cells | [wave-optics-periodic.md](references/wave-optics-periodic.md) |
 | Drude/loss signs, layered boundaries, dispersive sweeps, PML, manual Floquet | [materials-boundaries.md](references/materials-boundaries.md) |
-| Solver ownership, durable jobs, cancellation, Windows load stability, resource telemetry/admission | [durable-runtime.md](references/durable-runtime.md) |
+| Solver ownership, durable jobs/validation matrices, cancellation, Windows load stability, resource telemetry/admission | [durable-runtime.md](references/durable-runtime.md) |
 | R/T/A, flux closure, polarization evidence, wavelength sync, provenance, convergence, fields | [validation-evidence.md](references/validation-evidence.md) |
 | MIM, gratings, nanopillars, parameter scans, field export, common modeling recipes | [workflow-recipes.md](references/workflow-recipes.md) |
 | MCP profiles, typed mutations, schemas, deployment identity, packaging, restart/release gates | [mcp-development.md](references/mcp-development.md) |
