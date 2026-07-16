@@ -59,6 +59,16 @@ The default size node and a custom `Size` feature use different activation
 properties. Run a mesh-only resource gate before a finer level. Re-find each
 mesh's own resonance before comparing.
 
+Do not let a swept spectral parameter silently control the convergence mesh.
+If `hmax` or `hmin` contains the same `wl` that the spectrum changes, COMSOL may
+invalidate or rebuild the mesh at every point; the resulting spectrum then mixes
+discretization changes with physical wavelength response. For fixed-mesh spectral
+or own-peak convergence, define an independent parameter such as `mesh_ref_wl`,
+set every wavelength-scaled mesh expression from that parameter, build once per
+mesh level, and verify the element and vertex counts remain unchanged after each
+solve. If wavelength-adaptive meshing is intentional, declare it explicitly and
+do not label the result fixed-mesh convergence.
+
 ## Thin-cell gratings and polarization
 
 A 2D x-z grating cannot generally represent an out-of-plane electric

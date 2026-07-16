@@ -221,6 +221,13 @@ operator launcher that:
 On legacy Windows PowerShell, avoid non-ASCII literals in UTF-8 scripts without
 a BOM. Derive sibling paths from the script location or emit a verified BOM.
 
+Estimate unattended runtime from a smoke point that matches the solver backend,
+mesh level, physics, and memory mode of the planned run. Do not reuse timings
+from a different solver version, factorization path, mesh, or in-memory versus
+process-isolated configuration. Record per-level timings, update a bounded
+rolling estimate from completed points, and admit the next point only when that
+estimate plus margin fits the remaining wall budget.
+
 Some standalone clients leave JVM/helper threads alive after all outputs are
 saved. After flushing every artifact, saving through the Java clientapi, and
 releasing owned resources, `os._exit(0)` is acceptable for a dedicated worker.

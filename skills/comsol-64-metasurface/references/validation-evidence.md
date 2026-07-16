@@ -82,7 +82,12 @@ Whenever dispersion uses `wl`, record in every row:
 - `c_const/ewfd.freq`;
 - exact material expressions or their configuration hash.
 
-Diagnose any systematic difference before interpreting spectra.
+Use COMSOL's exact `c_const` for the synchronization verdict. Do not substitute
+the rounded convention `3e8/ewfd.freq`: it creates a systematic wavelength offset
+even when the solve is synchronized. If a historical report requires that value,
+store it in a separate field labeled `derived_from_declared_convention` and keep
+it out of the synchronization gate. Diagnose any remaining systematic difference
+before interpreting spectra.
 
 ## Provenance and source integrity
 
@@ -144,6 +149,11 @@ Use staged discovery:
 3. Refine around each interior bracket.
 4. Skip duplicate wavelengths between stages.
 5. Save the branch identity and bracket evidence.
+
+When later targets depend on completed locator or peak rows, persist the derived
+target list and its configuration identity before solving that stage. On resume,
+reuse the frozen list; do not regenerate it from a mixture of original and
+partially refined rows, which can change the requested set and break exact resume.
 
 For angle sweeps, continue branches from the preceding angle with adaptive
 windows. Scan the dominant polarization first; evaluate the suppressed
