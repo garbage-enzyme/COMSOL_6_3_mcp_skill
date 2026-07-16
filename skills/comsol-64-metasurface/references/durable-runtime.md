@@ -220,6 +220,10 @@ operator launcher that:
 
 On legacy Windows PowerShell, avoid non-ASCII literals in UTF-8 scripts without
 a BOM. Derive sibling paths from the script location or emit a verified BOM.
+If a launcher is moved into an archive such as a project `ps1` subdirectory,
+recompute every relative root from the launcher's new location and run an exact
+Windows PowerShell 5.1 preflight there. A launcher that validated before the
+move may otherwise resolve a nonexistent driver.
 
 Estimate unattended runtime from a smoke point that matches the solver backend,
 mesh level, physics, and memory mode of the planned run. Do not reuse timings

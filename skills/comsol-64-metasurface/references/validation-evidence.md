@@ -165,6 +165,14 @@ Q, residuals, baseline rule, threshold, and crossings. Fano, Lorentzian,
 absolute-half, and half-prominence widths are not interchangeable. Use identical
 spectral support and baseline definition across meshes.
 
+Completion of every durable row and passage of passivity, closure, and
+wavelength-synchronization gates do not establish mesh convergence. When a
+declared mesh-shift gate is missed marginally, first repeat the solver-free peak
+fit over several reasonable neighboring-point supports. If the fitted shift
+remains outside the gate, preserve `mesh_not_converged` or an equivalent
+residual status. Do not add another mesh level in a reproduction task unless
+the caller expands the requested evidence scope.
+
 A fixed-wavelength amplitude difference is a diagnostic, not convergence proof.
 Adding positive loss cannot increase total Q; if simulated Q is already low,
 audit geometry, radiation coupling, mesh, mode assignment, and fit definition.
