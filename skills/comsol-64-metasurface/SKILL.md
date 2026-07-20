@@ -39,6 +39,27 @@ Claude Code, Codex CLI, and opencode.
     agent-specific copies of profile, runtime, path, Java, shared-server, or
     evidence settings; pass only `COMSOL_MCP_SETTINGS_PATH` when the host cannot
     preserve the project path.
+12. Serialize every call to one COMSOL MCP stdio server, including read-only
+    discovery and status calls. Never use `Promise.all`, concurrent tool batches,
+    or overlapping lifecycle polls against the same server.
+
+## Strict MCP transport sequence
+
+Treat tool-level concurrency metadata as server-side operation policy, not
+permission to send parallel stdio requests. Call `capabilities`,
+`comsol_status`, and `solver_status` one at a time. For a lifecycle gate, use
+this exact order:
+
+```text
+capabilities -> comsol_status -> solver_status -> comsol_start once
+-> serial comsol_status polls -> comsol_disconnect -> solver_status
+-> comsol_start once -> serial comsol_status polls
+-> comsol_disconnect -> solver_status
+```
+
+Do not retry a timed-out request by issuing another COMSOL MCP call while the
+original request may still be executing. Parallelize only work that does not
+call the same COMSOL MCP server and cannot overlap its solver lifecycle.
 
 ## Shared settings contract
 

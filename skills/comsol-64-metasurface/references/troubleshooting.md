@@ -15,6 +15,8 @@
 | Symptom | Smallest safe diagnostic |
 | --- | --- |
 | First start call times out | Poll status; do not issue a second start while `starting=true`. |
+| Parallel read-only MCP calls stall | Stop batching calls to that stdio server; wait for the original requests or deliberately restart the MCP host, then invoke capabilities/status/ownership strictly one at a time. |
+| Cold public preflight stalls in `import mph`/NumPy | Capture a bounded thread stack. Do not retry concurrently. For a lifecycle gate on a release with background startup preflight, call `comsol_start` once and poll status serially. |
 | External collision reported | Inspect exact process identity and lease; do not attach/start another client. |
 | Only one client can be instantiated | Restart the Python/MCP host; do not construct another client in the same JVM. |
 | Job stuck cancelling | Inspect attempt-bound phases, worker/descendants, port, lease, and coordinator identity; remain nonterminal if uncertain. |

@@ -3,6 +3,7 @@
 ## Contents
 
 - Ownership and preflight
+- MCP transport serialization
 - Shared Desktop and attached Server
 - Durable job artifacts
 - Cancellation and recovery
@@ -32,6 +33,19 @@ Mutation paths require a fresh, complete process inventory. Read-only status may
 use a recent labeled cache with a strict deadline, but it must report cache age
 and incompleteness. Never allow an incomplete/expired inventory to acquire a
 lease, start a worker, refresh ownership, or recover an orphan.
+
+## MCP transport serialization
+
+Issue only one request at a time to a given COMSOL MCP stdio server. This rule
+also covers `capabilities`, session status, ownership status, job status, and
+polling. Do not infer that read-only or control-plane tools are safe to batch;
+server-side concurrency classes do not guarantee transport-level parallelism.
+
+After a host-side wait is interrupted, assume the original request may still be
+running. Do not issue a compensating start, disconnect, reset, or ownership
+mutation until the original call reaches a known terminal state or the MCP host
+is deliberately restarted. A long parallel-call sample is transport evidence,
+not proof that COMSOL, the JVM, or a solver is running.
 
 ## Shared Desktop and attached Server
 
