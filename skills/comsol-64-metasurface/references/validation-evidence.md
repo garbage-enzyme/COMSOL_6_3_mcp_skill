@@ -241,6 +241,24 @@ For paired on/off-resonance evidence:
 - optionally render PNGs in an isolated plotting process rather than relying on
   headless COMSOL image export.
 
+For paper-target field maps, read the exact field-export header before choosing
+the wavelength, slice coordinate, grid, or color scale. Different material
+states can use slightly different wavelengths even when the caption gives one
+approximate resonance, and a main panel can use per-view limits while the SI
+shows the same arrays on a shared scale. Preserve both renderings when both are
+scientifically relevant; compare only self-calculated arrays against the author
+arrays.
+
+Treat live field-tool discovery as authoritative. If an existing-dataset field
+extractor rejects a bounded raw request because it requires private normalized
+transport fields such as fingerprints or derived grid counts, do not invent
+those fields by hand. Use a documented public solver-free normalizer when one
+exists; otherwise record the contract mismatch and export the solved dataset
+through direct bounded clientapi interpolation with the same hashes, grid,
+coverage, and visual-review requirements. A preflight `next_call` hint is also
+non-authoritative when the live profile already exposes and successfully runs
+the named tool.
+
 Numerical code may report ratios. It must not claim mode identity, symmetry,
 localization, magnetic character, or publication quality. Require an image-
 capable reviewer to confirm receipt of every artifact hash and return structured
