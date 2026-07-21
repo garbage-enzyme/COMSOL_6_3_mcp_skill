@@ -249,6 +249,15 @@ shows the same arrays on a shared scale. Preserve both renderings when both are
 scientifically relevant; compare only self-calculated arrays against the author
 arrays.
 
+Periodic author exports can place the displayed unit-cell origin on a periodic
+boundary while the reproduced model uses a centered primitive cell. Align such
+maps only by a deterministic translation derived from the declared lattice
+vectors and geometry, such as an exact half-period recentering. Record the
+translation, wrapping rule, and pre/post coordinate ranges. Never maximize image
+correlation, hotspot overlap, or another agreement metric to choose the shift;
+that would tune the comparison to the target rather than reconcile coordinate
+conventions.
+
 Treat live field-tool discovery as authoritative. If an existing-dataset field
 extractor rejects a bounded raw request because it requires private normalized
 transport fields such as fingerprints or derived grid counts, do not invent
