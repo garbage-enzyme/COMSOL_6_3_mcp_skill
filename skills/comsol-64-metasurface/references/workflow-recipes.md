@@ -152,6 +152,12 @@ record coverage, and render with a normal plotting library. Use shared grids and
 limits for on/off comparisons.
 `scipy.griddata` plus `matplotlib.pcolormesh` is a practical headless path.
 
+For renderers that accept filtered or resumed subsets, derive subplot count,
+colors, labels, and legends from the selected rows. Validate their cardinalities
+before strict iteration, and test one-row, representative-subset, and full-matrix
+render paths. A fixed full-matrix panel count must not turn a valid partial or
+filtered solve into a failed run.
+
 ## Independent RCWA cautions
 
 RCWA layer profiles run from the incident medium toward the substrate. Verify

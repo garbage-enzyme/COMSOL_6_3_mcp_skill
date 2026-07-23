@@ -224,6 +224,19 @@ Skip completed exact identities before setting parameters. Admit only whole
 stages that fit the remaining wall budget plus margin. Keep control polling and
 durable-row callbacks bounded so cancellation cannot starve.
 
+Report progress by declared row role, not by the raw length of a shared CSV.
+Keep separate planned/completed counters for production targets, smoke gates,
+diagnostics, retries, and errors. A valid smoke row may share physical parameters
+with a later formal target but must not increment the formal completion count;
+normalize and compare exact point fingerprints before deciding whether it is
+reusable evidence.
+
+Separate solver completion from post-solve analysis and rendering. Once all
+required rows and their artifacts are durably flushed and verified, a plot,
+subplot, legend, or summary failure is a postprocess failure. Retry it through a
+solver-free entry point and never rerun the COMSOL points merely to regenerate a
+derived artifact.
+
 Order nested sweeps by the parameters that invalidate geometry, diffraction
 orders, or mesh. Put a mesh-dependent parameter on the outside and reuse one
 verified mesh only across inner parameters that cannot alter it. Persist the

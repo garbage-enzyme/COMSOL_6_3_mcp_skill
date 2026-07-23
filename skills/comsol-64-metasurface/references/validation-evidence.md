@@ -264,6 +264,21 @@ shows the same arrays on a shared scale. Preserve both renderings when both are
 scientifically relevant; compare only self-calculated arrays against the author
 arrays.
 
+Do not transfer a rotational-symmetry argument from an integrated spectrum to a
+fixed-coordinate local-field profile. A local-field equivalence must transform
+the physical incident polarization and the detector coordinates, line tangent,
+and slice normal together. For example, C4 symmetry can imply
+`|E|^2(x,0; Ex) = |E|^2(0,x; Ey)`, but not
+`|E|^2(x,0; Ex) = |E|^2(x,0; Ey)`. Record the exact symmetry operation and
+transformed probe geometry. Similar R/T/A under orthogonal polarizations does
+not validate an unrotated field line.
+
+For line-profile comparisons, report an absolute or normalized error metric
+alongside correlation and preserve the normalization rule. Correlation `1`
+allows an affine amplitude/baseline difference; it does not prove pointwise
+identity. When identity matters, also require slope near `1`, intercept near
+`0`, and RMSE within the declared tolerance on identical coordinates.
+
 Periodic author exports can place the displayed unit-cell origin on a periodic
 boundary while the reproduced model uses a centered primitive cell. Align such
 maps only by a deterministic translation derived from the declared lattice
